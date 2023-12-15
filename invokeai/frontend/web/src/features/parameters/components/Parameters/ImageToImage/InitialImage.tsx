@@ -1,33 +1,33 @@
-import { createSelector } from '@reduxjs/toolkit';
-import { skipToken } from '@reduxjs/toolkit/dist/query';
+import { skipToken } from '@reduxjs/toolkit/query';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
+import { stateSelector } from 'app/store/store';
+import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
+import IAIDndImage from 'common/components/IAIDndImage';
+import { IAINoContentFallback } from 'common/components/IAIImageFallback';
 import {
   TypesafeDraggableData,
   TypesafeDroppableData,
-} from 'app/components/ImageDnd/typesafeDnd';
-import { stateSelector } from 'app/store/store';
-import { useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
-import IAIDndImage from 'common/components/IAIDndImage';
-import { IAINoContentFallback } from 'common/components/IAIImageFallback';
-import { useMemo } from 'react';
+} from 'features/dnd/types';
+import { clearInitialImage } from 'features/parameters/store/generationSlice';
+import { memo, useEffect, useMemo } from 'react';
 import { useGetImageDTOQuery } from 'services/api/endpoints/images';
 
-const selector = createSelector(
-  [stateSelector],
-  (state) => {
-    const { initialImage } = state.generation;
-    return {
-      initialImage,
-      isResetButtonDisabled: !initialImage,
-    };
-  },
-  defaultSelectorOptions
-);
+const selector = createMemoizedSelector([stateSelector], (state) => {
+  const { initialImage } = state.generation;
+  const { isConnected } = state.system;
+
+  return {
+    initialImage,
+    isResetButtonDisabled: !initialImage,
+    isConnected,
+  };
+});
 
 const InitialImage = () => {
-  const { initialImage } = useAppSelector(selector);
+  const dispatch = useAppDispatch();
+  const { initialImage, isConnected } = useAppSelector(selector);
 
-  const { currentData: imageDTO } = useGetImageDTOQuery(
+  const { currentData: imageDTO, isError } = useGetImageDTOQuery(
     initialImage?.imageName ?? skipToken
   );
 
@@ -49,6 +49,13 @@ const InitialImage = () => {
     []
   );
 
+  useEffect(() => {
+    if (isError && isConnected) {
+      // The image doesn't exist, reset init image
+      dispatch(clearInitialImage());
+    }
+  }, [dispatch, isConnected, isError]);
+
   return (
     <IAIDndImage
       imageDTO={imageDTO}
@@ -60,8 +67,9 @@ const InitialImage = () => {
       noContentFallback={
         <IAINoContentFallback label="No initial image selected" />
       }
+      dataTestId="initial-image"
     />
   );
 };
 
-export default InitialImage;
+export default memo(InitialImage);

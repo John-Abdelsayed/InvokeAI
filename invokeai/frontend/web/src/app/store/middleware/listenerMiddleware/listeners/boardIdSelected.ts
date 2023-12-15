@@ -25,7 +25,7 @@ export const addBoardIdSelectedListener = () => {
       const state = getState();
 
       const board_id = boardIdSelected.match(action)
-        ? action.payload
+        ? action.payload.boardId
         : state.gallery.selectedBoardId;
 
       const galleryView = galleryViewChanged.match(action)
@@ -49,13 +49,21 @@ export const addBoardIdSelectedListener = () => {
 
       if (isSuccess) {
         // the board was just changed - we can select the first image
-        const { data: boardImagesData } = imagesApi.endpoints.listImages.select(
-          queryArgs
-        )(getState());
+        const { data: boardImagesData } =
+          imagesApi.endpoints.listImages.select(queryArgs)(getState());
 
-        if (boardImagesData) {
+        if (
+          boardImagesData &&
+          boardIdSelected.match(action) &&
+          action.payload.selectedImageName
+        ) {
           const firstImage = imagesSelectors.selectAll(boardImagesData)[0];
-          dispatch(imageSelected(firstImage ?? null));
+          const selectedImage = imagesSelectors.selectById(
+            boardImagesData,
+            action.payload.selectedImageName
+          );
+
+          dispatch(imageSelected(selectedImage || firstImage || null));
         } else {
           // board has no images - deselect
           dispatch(imageSelected(null));

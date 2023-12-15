@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import openapiTS from 'openapi-typescript';
 
-const OPENAPI_URL = 'http://localhost:9090/openapi.json';
+const OPENAPI_URL = 'http://127.0.0.1:9090/openapi.json';
 const OUTPUT_FILE = 'src/services/api/schema.d.ts';
 
 async function main() {
@@ -17,7 +17,7 @@ async function main() {
     },
   });
   fs.writeFileSync(OUTPUT_FILE, types);
-  process.stdout.write(` OK!\r\n`);
+  process.stdout.write(`\nOK!\r\n`);
 }
 
 main();

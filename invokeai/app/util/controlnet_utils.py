@@ -1,11 +1,12 @@
-import torch
-import numpy as np
-import cv2
-from PIL import Image
-from diffusers.utils import PIL_INTERPOLATION
+from typing import Union
 
+import cv2
+import numpy as np
+import torch
+from controlnet_aux.util import HWC3
+from diffusers.utils import PIL_INTERPOLATION
 from einops import rearrange
-from controlnet_aux.util import HWC3, resize_image
+from PIL import Image
 
 ###################################################################
 # Copy of scripts/lvminthin.py from Mikubill/sd-webui-controlnet
@@ -58,7 +59,7 @@ def thin_one_time(x, kernels):
 
 def lvmin_thin(x, prunings=True):
     y = x
-    for i in range(32):
+    for _i in range(32):
         y, is_done = thin_one_time(y, lvmin_kernels)
         if is_done:
             break
@@ -232,7 +233,8 @@ def np_img_resize(np_img: np.ndarray, resize_mode: str, h: int, w: int, device: 
     k0 = float(h) / old_h
     k1 = float(w) / old_w
 
-    safeint = lambda x: int(np.round(x))
+    def safeint(x: Union[int, float]) -> int:
+        return int(np.round(x))
 
     # if resize_mode == external_code.ResizeMode.OUTER_FIT:
     if resize_mode == "fill_resize":  # OUTER_FIT
@@ -263,22 +265,41 @@ def np_img_resize(np_img: np.ndarray, resize_mode: str, h: int, w: int, device: 
 
 
 def prepare_control_image(
-    # image used to be Union[PIL.Image.Image, List[PIL.Image.Image], torch.Tensor, List[torch.Tensor]]
-    # but now should be able to assume that image is a single PIL.Image, which simplifies things
-    image: Image,
-    # FIXME: need to fix hardwiring of width and height, change to basing on latents dimensions?
-    # latents_to_match_resolution, # TorchTensor of shape (batch_size, 3, height, width)
-    width=512,  # should be 8 * latent.shape[3]
-    height=512,  # should be 8 * latent height[2]
-    # batch_size=1, # currently no batching
-    # num_images_per_prompt=1, # currently only single image
+    image: Image.Image,
+    width: int,
+    height: int,
+    num_channels: int = 3,
     device="cuda",
     dtype=torch.float16,
     do_classifier_free_guidance=True,
     control_mode="balanced",
     resize_mode="just_resize_simple",
 ):
-    # FIXME: implement "crop_resize_simple" and "fill_resize_simple", or pull them out
+    """Pre-process images for ControlNets or T2I-Adapters.
+
+    Args:
+        image (Image): The PIL image to pre-process.
+        width (int): The target width in pixels.
+        height (int): The target height in pixels.
+        num_channels (int, optional): The target number of image channels. This is achieved by converting the input
+            image to RGB, then naively taking the first `num_channels` channels. The primary use case is converting a
+            RGB image to a single-channel grayscale image. Raises if `num_channels` cannot be achieved. Defaults to 3.
+        device (str, optional): The target device for the output image. Defaults to "cuda".
+        dtype (_type_, optional): The dtype for the output image. Defaults to torch.float16.
+        do_classifier_free_guidance (bool, optional): If True, repeat the output image along the batch dimension.
+            Defaults to True.
+        control_mode (str, optional): Defaults to "balanced".
+        resize_mode (str, optional): Defaults to "just_resize_simple".
+
+    Raises:
+        NotImplementedError: If resize_mode == "crop_resize_simple".
+        NotImplementedError: If resize_mode == "fill_resize_simple".
+        ValueError: If `resize_mode` is not recognized.
+        ValueError: If `num_channels` is out of range.
+
+    Returns:
+        torch.Tensor: The pre-processed input tensor.
+    """
     if (
         resize_mode == "just_resize_simple"
         or resize_mode == "crop_resize_simple"
@@ -287,10 +308,10 @@ def prepare_control_image(
         image = image.convert("RGB")
         if resize_mode == "just_resize_simple":
             image = image.resize((width, height), resample=PIL_INTERPOLATION["lanczos"])
-        elif resize_mode == "crop_resize_simple":  # not yet implemented
-            pass
-        elif resize_mode == "fill_resize_simple":  # not yet implemented
-            pass
+        elif resize_mode == "crop_resize_simple":
+            raise NotImplementedError(f"prepare_control_image is not implemented for resize_mode='{resize_mode}'.")
+        elif resize_mode == "fill_resize_simple":
+            raise NotImplementedError(f"prepare_control_image is not implemented for resize_mode='{resize_mode}'.")
         nimage = np.array(image)
         nimage = nimage[None, :]
         nimage = np.concatenate([nimage], axis=0)
@@ -311,9 +332,11 @@ def prepare_control_image(
             device=device,
         )
     else:
-        pass
-        print("ERROR: invalid resize_mode ==> ", resize_mode)
-        exit(1)
+        raise ValueError(f"Unsupported resize_mode: '{resize_mode}'.")
+
+    if timage.shape[1] < num_channels or num_channels <= 0:
+        raise ValueError(f"Cannot achieve the target of num_channels={num_channels}.")
+    timage = timage[:, :num_channels, :, :]
 
     timage = timage.to(device=device, dtype=dtype)
     cfg_injection = control_mode == "more_control" or control_mode == "unbalanced"

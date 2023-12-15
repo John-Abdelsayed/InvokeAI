@@ -20,11 +20,31 @@
 import re
 from contextlib import nullcontext
 from io import BytesIO
-from typing import Optional, Union
 from pathlib import Path
+from typing import Optional, Union
 
 import requests
 import torch
+from diffusers.models import AutoencoderKL, ControlNetModel, PriorTransformer, UNet2DConditionModel
+from diffusers.pipelines.latent_diffusion.pipeline_latent_diffusion import LDMBertConfig, LDMBertModel
+from diffusers.pipelines.paint_by_example import PaintByExampleImageEncoder
+from diffusers.pipelines.pipeline_utils import DiffusionPipeline
+from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
+from diffusers.pipelines.stable_diffusion.stable_unclip_image_normalizer import StableUnCLIPImageNormalizer
+from diffusers.schedulers import (
+    DDIMScheduler,
+    DDPMScheduler,
+    DPMSolverMultistepScheduler,
+    EulerAncestralDiscreteScheduler,
+    EulerDiscreteScheduler,
+    HeunDiscreteScheduler,
+    LMSDiscreteScheduler,
+    PNDMScheduler,
+    UnCLIPScheduler,
+)
+from diffusers.utils import is_accelerate_available, is_omegaconf_available
+from diffusers.utils.import_utils import BACKENDS_MAPPING
+from picklescan.scanner import scan_file_path
 from transformers import (
     AutoFeatureExtractor,
     BertTokenizerFast,
@@ -37,35 +57,9 @@ from transformers import (
     CLIPVisionModelWithProjection,
 )
 
-from diffusers.models import (
-    AutoencoderKL,
-    ControlNetModel,
-    PriorTransformer,
-    UNet2DConditionModel,
-)
-from diffusers.schedulers import (
-    DDIMScheduler,
-    DDPMScheduler,
-    DPMSolverMultistepScheduler,
-    EulerAncestralDiscreteScheduler,
-    EulerDiscreteScheduler,
-    HeunDiscreteScheduler,
-    LMSDiscreteScheduler,
-    PNDMScheduler,
-    UnCLIPScheduler,
-)
-from diffusers.utils import is_accelerate_available, is_omegaconf_available, is_safetensors_available
-from diffusers.utils.import_utils import BACKENDS_MAPPING
-from diffusers.pipelines.latent_diffusion.pipeline_latent_diffusion import LDMBertConfig, LDMBertModel
-from diffusers.pipelines.paint_by_example import PaintByExampleImageEncoder
-from diffusers.pipelines.pipeline_utils import DiffusionPipeline
-from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
-from diffusers.pipelines.stable_diffusion.stable_unclip_image_normalizer import StableUnCLIPImageNormalizer
-
-from invokeai.backend.util.logging import InvokeAILogger
 from invokeai.app.services.config import InvokeAIAppConfig
+from invokeai.backend.util.logging import InvokeAILogger
 
-from picklescan.scanner import scan_file_path
 from .models import BaseModelType, ModelVariantType
 
 try:
@@ -80,7 +74,7 @@ if is_accelerate_available():
     from accelerate import init_empty_weights
     from accelerate.utils import set_module_tensor_to_device
 
-logger = InvokeAILogger.getLogger(__name__)
+logger = InvokeAILogger.get_logger(__name__)
 CONVERT_MODEL_ROOT = InvokeAIAppConfig.get_config().models_path / "core/convert"
 
 
@@ -275,7 +269,7 @@ def create_unet_diffusers_config(original_config, image_size: int, controlnet=Fa
             resolution *= 2
 
     up_block_types = []
-    for i in range(len(block_out_channels)):
+    for _i in range(len(block_out_channels)):
         block_type = "CrossAttnUpBlock2D" if resolution in unet_params.attention_resolutions else "UpBlock2D"
         up_block_types.append(block_type)
         resolution //= 2
@@ -1205,8 +1199,8 @@ def download_from_original_stable_diffusion_ckpt(
         StableDiffusionControlNetPipeline,
         StableDiffusionInpaintPipeline,
         StableDiffusionPipeline,
-        StableDiffusionXLPipeline,
         StableDiffusionXLImg2ImgPipeline,
+        StableDiffusionXLPipeline,
         StableUnCLIPImg2ImgPipeline,
         StableUnCLIPPipeline,
     )
@@ -1221,9 +1215,6 @@ def download_from_original_stable_diffusion_ckpt(
         raise ValueError(BACKENDS_MAPPING["omegaconf"][1])
 
     if from_safetensors:
-        if not is_safetensors_available():
-            raise ValueError(BACKENDS_MAPPING["safetensors"][1])
-
         from safetensors.torch import load_file as safe_load
 
         checkpoint = safe_load(checkpoint_path, device="cpu")
@@ -1232,7 +1223,7 @@ def download_from_original_stable_diffusion_ckpt(
             # scan model
             scan_result = scan_file_path(checkpoint_path)
             if scan_result.infected_files != 0:
-                raise "The model {checkpoint_path} is potentially infected by malware. Aborting import."
+                raise Exception("The model {checkpoint_path} is potentially infected by malware. Aborting import.")
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
             checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -1288,12 +1279,12 @@ def download_from_original_stable_diffusion_ckpt(
         extract_ema = original_config["model"]["params"]["use_ema"]
 
     if (
-        model_version == BaseModelType.StableDiffusion2
+        model_version in [BaseModelType.StableDiffusion2, BaseModelType.StableDiffusion1]
         and original_config["model"]["params"].get("parameterization") == "v"
     ):
         prediction_type = "v_prediction"
         upcast_attention = True
-        image_size = 768
+        image_size = 768 if model_version == BaseModelType.StableDiffusion2 else 512
     else:
         prediction_type = "epsilon"
         upcast_attention = False
@@ -1662,9 +1653,6 @@ def download_controlnet_from_original_ckpt(
     from omegaconf import OmegaConf
 
     if from_safetensors:
-        if not is_safetensors_available():
-            raise ValueError(BACKENDS_MAPPING["safetensors"][1])
-
         from safetensors import safe_open
 
         checkpoint = {}
@@ -1676,7 +1664,7 @@ def download_controlnet_from_original_ckpt(
             # scan model
             scan_result = scan_file_path(checkpoint_path)
             if scan_result.infected_files != 0:
-                raise "The model {checkpoint_path} is potentially infected by malware. Aborting import."
+                raise Exception("The model {checkpoint_path} is potentially infected by malware. Aborting import.")
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
             checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -1741,7 +1729,7 @@ def convert_ckpt_to_diffusers(
 
     pipe.save_pretrained(
         dump_path,
-        safe_serialization=use_safetensors and is_safetensors_available(),
+        safe_serialization=use_safetensors,
     )
 
 
@@ -1757,7 +1745,4 @@ def convert_controlnet_to_diffusers(
     """
     pipe = download_controlnet_from_original_ckpt(checkpoint_path, **kwargs)
 
-    pipe.save_pretrained(
-        dump_path,
-        safe_serialization=is_safetensors_available(),
-    )
+    pipe.save_pretrained(dump_path, safe_serialization=True)

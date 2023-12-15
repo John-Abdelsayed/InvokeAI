@@ -1,25 +1,23 @@
 import io
+import traceback
 from typing import Optional
 
 from fastapi import Body, HTTPException, Path, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.routing import APIRouter
 from PIL import Image
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-from invokeai.app.invocations.metadata import ImageMetadata
-from invokeai.app.models.image import ImageCategory, ResourceOrigin
-from invokeai.app.services.image_record_storage import OffsetPaginatedResults
-from invokeai.app.services.item_storage import PaginatedResults
-from invokeai.app.services.models.image_record import (
-    ImageDTO,
-    ImageRecordChanges,
-    ImageUrlsDTO,
-)
+from invokeai.app.invocations.baseinvocation import MetadataField, MetadataFieldValidator
+from invokeai.app.services.image_records.image_records_common import ImageCategory, ImageRecordChanges, ResourceOrigin
+from invokeai.app.services.images.images_common import ImageDTO, ImageUrlsDTO
+from invokeai.app.services.shared.pagination import OffsetPaginatedResults
+from invokeai.app.services.workflow_records.workflow_records_common import WorkflowWithoutID, WorkflowWithoutIDValidator
 
 from ..dependencies import ApiDependencies
 
 images_router = APIRouter(prefix="/v1/images", tags=["images"])
+
 
 # images are immutable; set a high max-age
 IMAGE_MAX_AGE = 31536000
@@ -46,19 +44,40 @@ async def upload_image(
     crop_visible: Optional[bool] = Query(default=False, description="Whether to crop the image"),
 ) -> ImageDTO:
     """Uploads an image"""
-    if not file.content_type.startswith("image"):
+    if not file.content_type or not file.content_type.startswith("image"):
         raise HTTPException(status_code=415, detail="Not an image")
 
-    contents = await file.read()
+    metadata = None
+    workflow = None
 
+    contents = await file.read()
     try:
         pil_image = Image.open(io.BytesIO(contents))
         if crop_visible:
             bbox = pil_image.getbbox()
             pil_image = pil_image.crop(bbox)
-    except:
-        # Error opening the image
+    except Exception:
+        ApiDependencies.invoker.services.logger.error(traceback.format_exc())
         raise HTTPException(status_code=415, detail="Failed to read image")
+
+    # TODO: retain non-invokeai metadata on upload?
+    # attempt to parse metadata from image
+    metadata_raw = pil_image.info.get("invokeai_metadata", None)
+    if metadata_raw:
+        try:
+            metadata = MetadataFieldValidator.validate_json(metadata_raw)
+        except ValidationError:
+            ApiDependencies.invoker.services.logger.warn("Failed to parse metadata for uploaded image")
+            pass
+
+    # attempt to parse workflow from image
+    workflow_raw = pil_image.info.get("invokeai_workflow", None)
+    if workflow_raw is not None:
+        try:
+            workflow = WorkflowWithoutIDValidator.validate_json(workflow_raw)
+        except ValidationError:
+            ApiDependencies.invoker.services.logger.warn("Failed to parse metadata for uploaded image")
+            pass
 
     try:
         image_dto = ApiDependencies.invoker.services.images.create(
@@ -67,6 +86,8 @@ async def upload_image(
             image_category=image_category,
             session_id=session_id,
             board_id=board_id,
+            metadata=metadata,
+            workflow=workflow,
             is_intermediate=is_intermediate,
         )
 
@@ -74,7 +95,8 @@ async def upload_image(
         response.headers["Location"] = image_dto.image_url
 
         return image_dto
-    except Exception as e:
+    except Exception:
+        ApiDependencies.invoker.services.logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Failed to create image")
 
 
@@ -86,20 +108,31 @@ async def delete_image(
 
     try:
         ApiDependencies.invoker.services.images.delete(image_name)
-    except Exception as e:
+    except Exception:
         # TODO: Does this need any exception handling at all?
         pass
 
 
-@images_router.post("/clear-intermediates", operation_id="clear_intermediates")
+@images_router.delete("/intermediates", operation_id="clear_intermediates")
 async def clear_intermediates() -> int:
     """Clears all intermediates"""
 
     try:
         count_deleted = ApiDependencies.invoker.services.images.delete_intermediates()
         return count_deleted
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="Failed to clear intermediates")
+        pass
+
+
+@images_router.get("/intermediates", operation_id="get_intermediates_count")
+async def get_intermediates_count() -> int:
+    """Gets the count of intermediate images"""
+
+    try:
+        return ApiDependencies.invoker.services.images.get_intermediates_count()
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to get intermediates")
         pass
 
 
@@ -116,7 +149,7 @@ async def update_image(
 
     try:
         return ApiDependencies.invoker.services.images.update(image_name, image_changes)
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=400, detail="Failed to update image")
 
 
@@ -132,28 +165,41 @@ async def get_image_dto(
 
     try:
         return ApiDependencies.invoker.services.images.get_dto(image_name)
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=404)
 
 
 @images_router.get(
     "/i/{image_name}/metadata",
     operation_id="get_image_metadata",
-    response_model=ImageMetadata,
+    response_model=Optional[MetadataField],
 )
 async def get_image_metadata(
     image_name: str = Path(description="The name of image to get"),
-) -> ImageMetadata:
+) -> Optional[MetadataField]:
     """Gets an image's metadata"""
 
     try:
         return ApiDependencies.invoker.services.images.get_metadata(image_name)
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=404)
 
 
 @images_router.get(
+    "/i/{image_name}/workflow", operation_id="get_image_workflow", response_model=Optional[WorkflowWithoutID]
+)
+async def get_image_workflow(
+    image_name: str = Path(description="The name of image whose workflow to get"),
+) -> Optional[WorkflowWithoutID]:
+    try:
+        return ApiDependencies.invoker.services.images.get_workflow(image_name)
+    except Exception:
+        raise HTTPException(status_code=404)
+
+
+@images_router.api_route(
     "/i/{image_name}/full",
+    methods=["GET", "HEAD"],
     operation_id="get_image_full",
     response_class=Response,
     responses={
@@ -183,7 +229,7 @@ async def get_image_full(
         )
         response.headers["Cache-Control"] = f"max-age={IMAGE_MAX_AGE}"
         return response
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=404)
 
 
@@ -212,7 +258,7 @@ async def get_image_thumbnail(
         response = FileResponse(path, media_type="image/webp", content_disposition_type="inline")
         response.headers["Cache-Control"] = f"max-age={IMAGE_MAX_AGE}"
         return response
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=404)
 
 
@@ -234,7 +280,7 @@ async def get_image_urls(
             image_url=image_url,
             thumbnail_url=thumbnail_url,
         )
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=404)
 
 
@@ -282,8 +328,63 @@ async def delete_images_from_list(
             try:
                 ApiDependencies.invoker.services.images.delete(image_name)
                 deleted_images.append(image_name)
-            except:
+            except Exception:
                 pass
         return DeleteImagesFromListResult(deleted_images=deleted_images)
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="Failed to delete images")
+
+
+class ImagesUpdatedFromListResult(BaseModel):
+    updated_image_names: list[str] = Field(description="The image names that were updated")
+
+
+@images_router.post("/star", operation_id="star_images_in_list", response_model=ImagesUpdatedFromListResult)
+async def star_images_in_list(
+    image_names: list[str] = Body(description="The list of names of images to star", embed=True),
+) -> ImagesUpdatedFromListResult:
+    try:
+        updated_image_names: list[str] = []
+        for image_name in image_names:
+            try:
+                ApiDependencies.invoker.services.images.update(image_name, changes=ImageRecordChanges(starred=True))
+                updated_image_names.append(image_name)
+            except Exception:
+                pass
+        return ImagesUpdatedFromListResult(updated_image_names=updated_image_names)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to star images")
+
+
+@images_router.post("/unstar", operation_id="unstar_images_in_list", response_model=ImagesUpdatedFromListResult)
+async def unstar_images_in_list(
+    image_names: list[str] = Body(description="The list of names of images to unstar", embed=True),
+) -> ImagesUpdatedFromListResult:
+    try:
+        updated_image_names: list[str] = []
+        for image_name in image_names:
+            try:
+                ApiDependencies.invoker.services.images.update(image_name, changes=ImageRecordChanges(starred=False))
+                updated_image_names.append(image_name)
+            except Exception:
+                pass
+        return ImagesUpdatedFromListResult(updated_image_names=updated_image_names)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to unstar images")
+
+
+class ImagesDownloaded(BaseModel):
+    response: Optional[str] = Field(
+        description="If defined, the message to display to the user when images begin downloading"
+    )
+
+
+@images_router.post("/download", operation_id="download_images_from_list", response_model=ImagesDownloaded)
+async def download_images_from_list(
+    image_names: list[str] = Body(description="The list of names of images to download", embed=True),
+    board_id: Optional[str] = Body(
+        default=None, description="The board from which image should be downloaded from", embed=True
+    ),
+) -> ImagesDownloaded:
+    # return ImagesDownloaded(response="Your images are downloading")
+    raise HTTPException(status_code=501, detail="Endpoint is not yet implemented")

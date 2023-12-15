@@ -1,8 +1,10 @@
 import { Box, ButtonGroup, Flex } from '@chakra-ui/react';
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
+import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
 import IAIIconButton from 'common/components/IAIIconButton';
 import IAIMantineSelect from 'common/components/IAIMantineSelect';
+import { useCopyImageToClipboard } from 'common/hooks/useCopyImageToClipboard';
 import { useImageUploadButton } from 'common/hooks/useImageUploadButton';
 import { useSingleAndDoubleClick } from 'common/hooks/useSingleAndDoubleClick';
 import {
@@ -11,14 +13,10 @@ import {
   canvasMerged,
   canvasSavedToGallery,
 } from 'features/canvas/store/actions';
-import {
-  canvasSelector,
-  isStagingSelector,
-} from 'features/canvas/store/canvasSelectors';
+import { isStagingSelector } from 'features/canvas/store/canvasSelectors';
 import {
   resetCanvas,
   resetCanvasView,
-  resizeAndScaleCanvas,
   setIsMaskEnabled,
   setLayer,
   setTool,
@@ -28,9 +26,7 @@ import {
   LAYER_NAMES_DICT,
 } from 'features/canvas/store/canvasTypes';
 import { getCanvasBaseLayer } from 'features/canvas/util/konvaInstanceProvider';
-import { systemSelector } from 'features/system/store/systemSelectors';
-import { useCopyImageToClipboard } from 'features/ui/hooks/useCopyImageToClipboard';
-import { isEqual } from 'lodash-es';
+import { memo, useCallback } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useTranslation } from 'react-i18next';
 import {
@@ -49,33 +45,25 @@ import IAICanvasSettingsButtonPopover from './IAICanvasSettingsButtonPopover';
 import IAICanvasToolChooserOptions from './IAICanvasToolChooserOptions';
 import IAICanvasUndoButton from './IAICanvasUndoButton';
 
-export const selector = createSelector(
-  [systemSelector, canvasSelector, isStagingSelector],
-  (system, canvas, isStaging) => {
-    const { isProcessing } = system;
+export const selector = createMemoizedSelector(
+  [stateSelector, isStagingSelector],
+  ({ canvas }, isStaging) => {
     const { tool, shouldCropToBoundingBoxOnSave, layer, isMaskEnabled } =
       canvas;
 
     return {
-      isProcessing,
       isStaging,
       isMaskEnabled,
       tool,
       layer,
       shouldCropToBoundingBoxOnSave,
     };
-  },
-  {
-    memoizeOptions: {
-      resultEqualityCheck: isEqual,
-    },
   }
 );
 
 const IAICanvasToolbar = () => {
   const dispatch = useAppDispatch();
-  const { isProcessing, isStaging, isMaskEnabled, layer, tool } =
-    useAppSelector(selector);
+  const { isStaging, isMaskEnabled, layer, tool } = useAppSelector(selector);
   const canvasBaseLayer = getCanvasBaseLayer();
 
   const { t } = useTranslation();
@@ -118,7 +106,7 @@ const IAICanvasToolbar = () => {
       enabled: () => !isStaging,
       preventDefault: true,
     },
-    [canvasBaseLayer, isProcessing]
+    [canvasBaseLayer]
   );
 
   useHotkeys(
@@ -130,7 +118,7 @@ const IAICanvasToolbar = () => {
       enabled: () => !isStaging,
       preventDefault: true,
     },
-    [canvasBaseLayer, isProcessing]
+    [canvasBaseLayer]
   );
 
   useHotkeys(
@@ -142,7 +130,7 @@ const IAICanvasToolbar = () => {
       enabled: () => !isStaging && isClipboardAPIAvailable,
       preventDefault: true,
     },
-    [canvasBaseLayer, isProcessing, isClipboardAPIAvailable]
+    [canvasBaseLayer, isClipboardAPIAvailable]
   );
 
   useHotkeys(
@@ -154,10 +142,12 @@ const IAICanvasToolbar = () => {
       enabled: () => !isStaging,
       preventDefault: true,
     },
-    [canvasBaseLayer, isProcessing]
+    [canvasBaseLayer]
   );
 
-  const handleSelectMoveTool = () => dispatch(setTool('move'));
+  const handleSelectMoveTool = useCallback(() => {
+    dispatch(setTool('move'));
+  }, [dispatch]);
 
   const handleClickResetCanvasView = useSingleAndDoubleClick(
     () => handleResetCanvasView(false),
@@ -166,7 +156,9 @@ const IAICanvasToolbar = () => {
 
   const handleResetCanvasView = (shouldScaleTo1 = false) => {
     const canvasBaseLayer = getCanvasBaseLayer();
-    if (!canvasBaseLayer) return;
+    if (!canvasBaseLayer) {
+      return;
+    }
     const clientRect = canvasBaseLayer.getClientRect({
       skipTransform: true,
     });
@@ -178,37 +170,39 @@ const IAICanvasToolbar = () => {
     );
   };
 
-  const handleResetCanvas = () => {
+  const handleResetCanvas = useCallback(() => {
     dispatch(resetCanvas());
-    dispatch(resizeAndScaleCanvas());
-  };
+  }, [dispatch]);
 
-  const handleMergeVisible = () => {
+  const handleMergeVisible = useCallback(() => {
     dispatch(canvasMerged());
-  };
+  }, [dispatch]);
 
-  const handleSaveToGallery = () => {
+  const handleSaveToGallery = useCallback(() => {
     dispatch(canvasSavedToGallery());
-  };
+  }, [dispatch]);
 
-  const handleCopyImageToClipboard = () => {
+  const handleCopyImageToClipboard = useCallback(() => {
     if (!isClipboardAPIAvailable) {
       return;
     }
     dispatch(canvasCopiedToClipboard());
-  };
+  }, [dispatch, isClipboardAPIAvailable]);
 
-  const handleDownloadAsImage = () => {
+  const handleDownloadAsImage = useCallback(() => {
     dispatch(canvasDownloadedAsImage());
-  };
+  }, [dispatch]);
 
-  const handleChangeLayer = (v: string) => {
-    const newLayer = v as CanvasLayer;
-    dispatch(setLayer(newLayer));
-    if (newLayer === 'mask' && !isMaskEnabled) {
-      dispatch(setIsMaskEnabled(true));
-    }
-  };
+  const handleChangeLayer = useCallback(
+    (v: string) => {
+      const newLayer = v as CanvasLayer;
+      dispatch(setLayer(newLayer));
+      if (newLayer === 'mask' && !isMaskEnabled) {
+        dispatch(setIsMaskEnabled(true));
+      }
+    },
+    [dispatch, isMaskEnabled]
+  );
 
   return (
     <Flex
@@ -309,4 +303,4 @@ const IAICanvasToolbar = () => {
   );
 };
 
-export default IAICanvasToolbar;
+export default memo(IAICanvasToolbar);

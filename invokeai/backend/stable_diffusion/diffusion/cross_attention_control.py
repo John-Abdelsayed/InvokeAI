@@ -4,17 +4,19 @@
 
 import enum
 import math
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 import diffusers
 import psutil
 import torch
 from compel.cross_attention_control import Arguments
+from diffusers.models.attention_processor import Attention, AttentionProcessor, AttnProcessor, SlicedAttnProcessor
 from diffusers.models.unet_2d_condition import UNet2DConditionModel
-from diffusers.models.attention_processor import AttentionProcessor
 from torch import nn
 
 import invokeai.backend.util.logging as logger
+
 from ...util import torch_dtype
 
 
@@ -52,13 +54,13 @@ class Context:
         self.clear_requests(cleanup=True)
 
     def register_cross_attention_modules(self, model):
-        for name, module in get_cross_attention_modules(model, CrossAttentionType.SELF):
+        for name, _module in get_cross_attention_modules(model, CrossAttentionType.SELF):
             if name in self.self_cross_attention_module_identifiers:
-                assert False, f"name {name} cannot appear more than once"
+                raise AssertionError(f"name {name} cannot appear more than once")
             self.self_cross_attention_module_identifiers.append(name)
-        for name, module in get_cross_attention_modules(model, CrossAttentionType.TOKENS):
+        for name, _module in get_cross_attention_modules(model, CrossAttentionType.TOKENS):
             if name in self.tokens_cross_attention_module_identifiers:
-                assert False, f"name {name} cannot appear more than once"
+                raise AssertionError(f"name {name} cannot appear more than once")
             self.tokens_cross_attention_module_identifiers.append(name)
 
     def request_save_attention_maps(self, cross_attention_type: CrossAttentionType):
@@ -168,7 +170,7 @@ class Context:
             self.saved_cross_attention_maps = {}
 
     def offload_saved_attention_slices_to_cpu(self):
-        for key, map_dict in self.saved_cross_attention_maps.items():
+        for _key, map_dict in self.saved_cross_attention_maps.items():
             for offset, slice in map_dict["slices"].items():
                 map_dict[offset] = slice.to("cpu")
 
@@ -374,11 +376,11 @@ def get_cross_attention_modules(model, which: CrossAttentionType) -> list[tuple[
         # non-fatal error but .swap() won't work.
         logger.error(
             f"Error! CrossAttentionControl found an unexpected number of {cross_attention_class} modules in the model "
-            + f"(expected {expected_count}, found {cross_attention_modules_in_model_count}). Either monkey-patching failed "
-            + "or some assumption has changed about the structure of the model itself. Please fix the monkey-patching, "
-            + f"and/or update the {expected_count} above to an appropriate number, and/or find and inform someone who knows "
-            + "what it means. This error is non-fatal, but it is likely that .swap() and attention map display will not "
-            + "work properly until it is fixed."
+            f"(expected {expected_count}, found {cross_attention_modules_in_model_count}). Either monkey-patching "
+            "failed or some assumption has changed about the structure of the model itself. Please fix the "
+            f"monkey-patching, and/or update the {expected_count} above to an appropriate number, and/or find and "
+            "inform someone who knows what it means. This error is non-fatal, but it is likely that .swap() and "
+            "attention map display will not work properly until it is fixed."
         )
     return attention_module_tuples
 
@@ -431,7 +433,7 @@ def inject_attention_function(unet, context: Context):
         module.identifier = identifier
         try:
             module.set_attention_slice_wrangler(attention_slice_wrangler)
-            module.set_slicing_strategy_getter(lambda module: context.get_slicing_strategy(identifier))
+            module.set_slicing_strategy_getter(lambda module: context.get_slicing_strategy(identifier))  # noqa: B023
         except AttributeError as e:
             if is_attribute_error_about(e, "set_attention_slice_wrangler"):
                 print(f"TODO: implement set_attention_slice_wrangler for {type(module)}")  # TODO
@@ -443,7 +445,7 @@ def remove_attention_function(unet):
     cross_attention_modules = get_cross_attention_modules(
         unet, CrossAttentionType.TOKENS
     ) + get_cross_attention_modules(unet, CrossAttentionType.SELF)
-    for identifier, module in cross_attention_modules:
+    for _identifier, module in cross_attention_modules:
         try:
             # clear wrangler callback
             module.set_attention_slice_wrangler(None)
@@ -522,14 +524,6 @@ class AttnProcessor:
         return hidden_states
 
 """
-from dataclasses import dataclass, field
-
-import torch
-from diffusers.models.attention_processor import (
-    Attention,
-    AttnProcessor,
-    SlicedAttnProcessor,
-)
 
 
 @dataclass
@@ -583,6 +577,7 @@ class SlicedSwapCrossAttnProcesser(SlicedAttnProcessor):
         attention_mask=None,
         # kwargs
         swap_cross_attn_context: SwapCrossAttnContext = None,
+        **kwargs,
     ):
         attention_type = CrossAttentionType.SELF if encoder_hidden_states is None else CrossAttentionType.TOKENS
 

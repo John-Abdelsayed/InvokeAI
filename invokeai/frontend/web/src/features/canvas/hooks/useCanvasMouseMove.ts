@@ -1,25 +1,21 @@
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
+import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
-import {
-  canvasSelector,
-  isStagingSelector,
-} from 'features/canvas/store/canvasSelectors';
+import { isStagingSelector } from 'features/canvas/store/canvasSelectors';
 import {
   addPointToCurrentLine,
   setCursorPosition,
 } from 'features/canvas/store/canvasSlice';
+import getScaledCursorPosition from 'features/canvas/util/getScaledCursorPosition';
 import { activeTabNameSelector } from 'features/ui/store/uiSelectors';
 import Konva from 'konva';
 import { Vector2d } from 'konva/lib/types';
-import { isEqual } from 'lodash-es';
-
 import { MutableRefObject, useCallback } from 'react';
-import getScaledCursorPosition from '../util/getScaledCursorPosition';
 import useColorPicker from './useColorUnderCursor';
 
-const selector = createSelector(
-  [activeTabNameSelector, canvasSelector, isStagingSelector],
-  (activeTabName, canvas, isStaging) => {
+const selector = createMemoizedSelector(
+  [activeTabNameSelector, stateSelector, isStagingSelector],
+  (activeTabName, { canvas }, isStaging) => {
     const { tool, isDrawing } = canvas;
     return {
       tool,
@@ -27,8 +23,7 @@ const selector = createSelector(
       activeTabName,
       isStaging,
     };
-  },
-  { memoizeOptions: { resultEqualityCheck: isEqual } }
+  }
 );
 
 const useCanvasMouseMove = (
@@ -41,11 +36,15 @@ const useCanvasMouseMove = (
   const { updateColorUnderCursor } = useColorPicker();
 
   return useCallback(() => {
-    if (!stageRef.current) return;
+    if (!stageRef.current) {
+      return;
+    }
 
     const scaledCursorPosition = getScaledCursorPosition(stageRef.current);
 
-    if (!scaledCursorPosition) return;
+    if (!scaledCursorPosition) {
+      return;
+    }
 
     dispatch(setCursorPosition(scaledCursorPosition));
 
@@ -56,7 +55,9 @@ const useCanvasMouseMove = (
       return;
     }
 
-    if (!isDrawing || tool === 'move' || isStaging) return;
+    if (!isDrawing || tool === 'move' || isStaging) {
+      return;
+    }
 
     didMouseMoveRef.current = true;
     dispatch(

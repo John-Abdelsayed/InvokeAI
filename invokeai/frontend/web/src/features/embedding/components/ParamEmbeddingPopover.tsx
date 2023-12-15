@@ -13,7 +13,8 @@ import IAIMantineSearchableSelect from 'common/components/IAIMantineSearchableSe
 import IAIMantineSelectItemWithTooltip from 'common/components/IAIMantineSelectItemWithTooltip';
 import { MODEL_TYPE_MAP } from 'features/parameters/types/constants';
 import { forEach } from 'lodash-es';
-import { PropsWithChildren, useCallback, useMemo, useRef } from 'react';
+import { PropsWithChildren, memo, useCallback, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useGetTextualInversionModelsQuery } from 'services/api/endpoints/models';
 import { PARAMETERS_PANEL_WIDTH } from 'theme/util/constants';
 
@@ -27,6 +28,7 @@ const ParamEmbeddingPopover = (props: Props) => {
   const { onSelect, isOpen, onClose, children } = props;
   const { data: embeddingQueryData } = useGetTextualInversionModelsQuery();
   const inputRef = useRef<HTMLInputElement>(null);
+  const { t } = useTranslation();
 
   const currentMainModel = useAppSelector(
     (state: RootState) => state.generation.model
@@ -52,7 +54,7 @@ const ParamEmbeddingPopover = (props: Props) => {
         group: MODEL_TYPE_MAP[embedding.base_model],
         disabled,
         tooltip: disabled
-          ? `Incompatible base model: ${embedding.base_model}`
+          ? `${t('embedding.incompatibleModel')} ${embedding.base_model}`
           : undefined,
       });
     });
@@ -63,7 +65,7 @@ const ParamEmbeddingPopover = (props: Props) => {
     );
 
     return data.sort((a, b) => (a.disabled && !b.disabled ? 1 : -1));
-  }, [embeddingQueryData, currentMainModel?.base_model]);
+  }, [embeddingQueryData, currentMainModel?.base_model, t]);
 
   const handleChange = useCallback(
     (v: string | null) => {
@@ -74,6 +76,13 @@ const ParamEmbeddingPopover = (props: Props) => {
       onSelect(v);
     },
     [onSelect]
+  );
+
+  const filterFunc = useCallback(
+    (value: string, item: SelectItem) =>
+      item.label?.toLowerCase().includes(value.toLowerCase().trim()) ||
+      item.value.toLowerCase().includes(value.toLowerCase().trim()),
+    []
   );
 
   return (
@@ -112,25 +121,20 @@ const ParamEmbeddingPopover = (props: Props) => {
                 _dark: { color: 'base.700' },
               }}
             >
-              <Text>No Embeddings Loaded</Text>
+              <Text>{t('embedding.noEmbeddingsLoaded')}</Text>
             </Flex>
           ) : (
             <IAIMantineSearchableSelect
               inputRef={inputRef}
               autoFocus
-              placeholder={'Add Embedding'}
+              placeholder={t('embedding.addEmbedding')}
               value={null}
               data={data}
-              nothingFound="No matching Embeddings"
+              nothingFound={t('embedding.noMatchingEmbedding')}
               itemComponent={IAIMantineSelectItemWithTooltip}
               disabled={data.length === 0}
               onDropdownClose={onClose}
-              filter={(value, item: SelectItem) =>
-                item.label
-                  ?.toLowerCase()
-                  .includes(value.toLowerCase().trim()) ||
-                item.value.toLowerCase().includes(value.toLowerCase().trim())
-              }
+              filter={filterFunc}
               onChange={handleChange}
             />
           )}
@@ -140,4 +144,4 @@ const ParamEmbeddingPopover = (props: Props) => {
   );
 };
 
-export default ParamEmbeddingPopover;
+export default memo(ParamEmbeddingPopover);

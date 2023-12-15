@@ -1,34 +1,31 @@
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
 import IAISlider, { IAIFullSliderProps } from 'common/components/IAISlider';
 import { roundToMultiple } from 'common/util/roundDownToMultiple';
 import { setHeight, setWidth } from 'features/parameters/store/generationSlice';
 import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
-const selector = createSelector(
+const selector = createMemoizedSelector(
   [stateSelector],
   ({ generation, hotkeys, config }) => {
-    const { initial, min, sliderMax, inputMax, fineStep, coarseStep } =
-      config.sd.height;
-    const { height } = generation;
+    const { min, sliderMax, inputMax, fineStep, coarseStep } = config.sd.height;
+    const { model, height } = generation;
     const { aspectRatio } = generation;
 
     const step = hotkeys.shift ? fineStep : coarseStep;
 
     return {
+      model,
       height,
-      initial,
       min,
       sliderMax,
       inputMax,
       step,
       aspectRatio,
     };
-  },
-  defaultSelectorOptions
+  }
 );
 
 type ParamHeightProps = Omit<
@@ -37,10 +34,14 @@ type ParamHeightProps = Omit<
 >;
 
 const ParamHeight = (props: ParamHeightProps) => {
-  const { height, initial, min, sliderMax, inputMax, step, aspectRatio } =
+  const { model, height, min, sliderMax, inputMax, step, aspectRatio } =
     useAppSelector(selector);
   const dispatch = useAppDispatch();
   const { t } = useTranslation();
+
+  const initial = ['sdxl', 'sdxl-refiner'].includes(model?.base_model as string)
+    ? 1024
+    : 512;
 
   const handleChange = useCallback(
     (v: number) => {

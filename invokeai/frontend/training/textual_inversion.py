@@ -21,8 +21,8 @@ from npyscreen import widget
 from omegaconf import OmegaConf
 
 import invokeai.backend.util.logging as logger
-
 from invokeai.app.services.config import InvokeAIAppConfig
+
 from ...backend.training import do_textual_inversion_training, parse_args
 
 TRAINING_DATA = "text-inversion-training-data"
@@ -59,7 +59,7 @@ class textualInversionForm(npyscreen.FormMultiPageAction):
 
         try:
             default = self.model_names.index(saved_args["model"])
-        except:
+        except Exception:
             pass
 
         self.add_widget_intelligent(
@@ -276,13 +276,13 @@ class textualInversionForm(npyscreen.FormMultiPageAction):
 
     def get_model_names(self) -> Tuple[List[str], int]:
         conf = OmegaConf.load(config.root_dir / "configs/models.yaml")
-        model_names = [idx for idx in sorted(list(conf.keys())) if conf[idx].get("format", None) == "diffusers"]
+        model_names = [idx for idx in sorted(conf.keys()) if conf[idx].get("format", None) == "diffusers"]
         defaults = [idx for idx in range(len(model_names)) if "default" in conf[model_names[idx]]]
         default = defaults[0] if len(defaults) > 0 else 0
         return (model_names, default)
 
     def marshall_arguments(self) -> dict:
-        args = dict()
+        args = {}
 
         # the choices
         args.update(
@@ -377,7 +377,7 @@ def previous_args() -> dict:
     try:
         conf = OmegaConf.load(conf_file)
         conf["placeholder_token"] = conf["placeholder_token"].strip("<>")
-    except:
+    except Exception:
         conf = None
 
     return conf

@@ -1,19 +1,20 @@
 import os
-import torch
 from typing import Optional
-from .base import (
-    ModelBase,
-    ModelConfigBase,
-    BaseModelType,
-    ModelType,
-    SubModelType,
-    classproperty,
-    ModelNotFoundException,
-    InvalidModelException,
-)
+
+import torch
 
 # TODO: naming
 from ..lora import TextualInversionModel as TextualInversionModelRaw
+from .base import (
+    BaseModelType,
+    InvalidModelException,
+    ModelBase,
+    ModelConfigBase,
+    ModelNotFoundException,
+    ModelType,
+    SubModelType,
+    classproperty,
+)
 
 
 class TextualInversionModel(ModelBase):
@@ -70,7 +71,7 @@ class TextualInversionModel(ModelBase):
                 return None  # diffusers-ti
 
         if os.path.isfile(path):
-            if any([path.endswith(f".{ext}") for ext in ["safetensors", "ckpt", "pt", "bin"]]):
+            if any(path.endswith(f".{ext}") for ext in ["safetensors", "ckpt", "pt", "bin"]):
                 return None
 
         raise InvalidModelException(f"Not a valid model: {path}")

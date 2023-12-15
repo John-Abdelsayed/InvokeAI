@@ -9,13 +9,14 @@ Copyright (c) 2023 Lincoln Stein and the InvokeAI Development Team
 import warnings
 from enum import Enum
 from pathlib import Path
+from typing import List, Optional, Union
+
 from diffusers import DiffusionPipeline
 from diffusers import logging as dlogging
-from typing import List, Union, Optional
 
 import invokeai.backend.util.logging as logger
 
-from ...backend.model_management import ModelManager, ModelType, BaseModelType, ModelVariantType, AddModelResult
+from ...backend.model_management import AddModelResult, BaseModelType, ModelManager, ModelType, ModelVariantType
 
 
 class MergeInterpolationMethod(str, Enum):
@@ -91,7 +92,7 @@ class ModelMerger(object):
         **kwargs - the default DiffusionPipeline.get_config_dict kwargs:
              cache_dir, resume_download, force_download, proxies, local_files_only, use_auth_token, revision, torch_dtype, device_map
         """
-        model_paths = list()
+        model_paths = []
         config = self.manager.app_config
         base_model = BaseModelType(base_model)
         vae = None
@@ -109,7 +110,7 @@ class ModelMerger(object):
             # pick up the first model's vae
             if mod == model_names[0]:
                 vae = info.get("vae")
-            model_paths.extend([config.root_path / info["path"]])
+            model_paths.extend([(config.root_path / info["path"]).as_posix()])
 
         merge_method = None if interp == "weighted_sum" else MergeInterpolationMethod(interp)
         logger.debug(f"interp = {interp}, merge_method={merge_method}")
@@ -120,16 +121,16 @@ class ModelMerger(object):
             else config.models_path / base_model.value / ModelType.Main.value
         )
         dump_path.mkdir(parents=True, exist_ok=True)
-        dump_path = dump_path / merged_model_name
+        dump_path = (dump_path / merged_model_name).as_posix()
 
         merged_pipe.save_pretrained(dump_path, safe_serialization=True)
-        attributes = dict(
-            path=str(dump_path),
-            description=f"Merge of models {', '.join(model_names)}",
-            model_format="diffusers",
-            variant=ModelVariantType.Normal.value,
-            vae=vae,
-        )
+        attributes = {
+            "path": dump_path,
+            "description": f"Merge of models {', '.join(model_names)}",
+            "model_format": "diffusers",
+            "variant": ModelVariantType.Normal.value,
+            "vae": vae,
+        }
         return self.manager.add_model(
             merged_model_name,
             base_model=base_model,

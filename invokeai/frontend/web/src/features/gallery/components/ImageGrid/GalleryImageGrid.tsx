@@ -1,7 +1,10 @@
 import { Box, Flex } from '@chakra-ui/react';
+import { EntityId } from '@reduxjs/toolkit';
 import { useAppSelector } from 'app/store/storeHooks';
 import IAIButton from 'common/components/IAIButton';
 import { IAINoContentFallback } from 'common/components/IAIImageFallback';
+import { VirtuosoGalleryContext } from 'features/gallery/components/ImageGrid/types';
+import { $useNextPrevImageState } from 'features/gallery/hooks/useNextPrevImage';
 import { selectListImagesBaseQueryArgs } from 'features/gallery/store/gallerySelectors';
 import { IMAGE_LIMIT } from 'features/gallery/store/types';
 import {
@@ -11,7 +14,12 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FaExclamationCircle, FaImage } from 'react-icons/fa';
-import { VirtuosoGrid } from 'react-virtuoso';
+import {
+  ItemContent,
+  ListRange,
+  VirtuosoGrid,
+  VirtuosoGridHandle,
+} from 'react-virtuoso';
 import {
   useLazyListImagesQuery,
   useListImagesQuery,
@@ -26,7 +34,7 @@ const overlayScrollbarsConfig: UseOverlayScrollbarsParams = {
   options: {
     scrollbars: {
       visibility: 'auto',
-      autoHide: 'leave',
+      autoHide: 'scroll',
       autoHideDelay: 1300,
       theme: 'os-theme-dark',
     },
@@ -46,6 +54,10 @@ const GalleryImageGrid = () => {
   );
   const { currentViewTotal } = useBoardTotal(selectedBoardId);
   const queryArgs = useAppSelector(selectListImagesBaseQueryArgs);
+
+  const virtuosoRangeRef = useRef<ListRange | null>(null);
+
+  const virtuosoRef = useRef<VirtuosoGridHandle>(null);
 
   const { currentData, isFetching, isSuccess, isError } =
     useListImagesQuery(queryArgs);
@@ -71,6 +83,27 @@ const GalleryImageGrid = () => {
     });
   }, [areMoreAvailable, listImages, queryArgs, currentData?.ids.length]);
 
+  const virtuosoContext = useMemo<VirtuosoGalleryContext>(() => {
+    return {
+      virtuosoRef,
+      rootRef,
+      virtuosoRangeRef,
+    };
+  }, []);
+
+  const itemContentFunc: ItemContent<EntityId, VirtuosoGalleryContext> =
+    useCallback(
+      (index, imageName, virtuosoContext) => (
+        <GalleryImage
+          key={imageName}
+          index={index}
+          imageName={imageName as string}
+          virtuosoContext={virtuosoContext}
+        />
+      ),
+      []
+    );
+
   useEffect(() => {
     // Initialize the gallery's custom scrollbar
     const { current: root } = rootRef;
@@ -85,6 +118,15 @@ const GalleryImageGrid = () => {
     return () => osInstance()?.destroy();
   }, [scroller, initialize, osInstance]);
 
+  const onRangeChanged = useCallback((range: ListRange) => {
+    virtuosoRangeRef.current = range;
+  }, []);
+
+  useEffect(() => {
+    $useNextPrevImageState.setKey('virtuosoRef', virtuosoRef);
+    $useNextPrevImageState.setKey('virtuosoRangeRef', virtuosoRangeRef);
+  }, []);
+
   if (!currentData) {
     return (
       <Flex
@@ -95,7 +137,7 @@ const GalleryImageGrid = () => {
           justifyContent: 'center',
         }}
       >
-        <IAINoContentFallback label="Loading..." icon={FaImage} />
+        <IAINoContentFallback label={t('gallery.loading')} icon={FaImage} />
       </Flex>
     );
   }
@@ -131,16 +173,18 @@ const GalleryImageGrid = () => {
               List: ImageGridListContainer,
             }}
             scrollerRef={setScroller}
-            itemContent={(index, imageName) => (
-              <GalleryImage key={imageName} imageName={imageName as string} />
-            )}
+            itemContent={itemContentFunc}
+            ref={virtuosoRef}
+            rangeChanged={onRangeChanged}
+            context={virtuosoContext}
+            overscan={10}
           />
         </Box>
         <IAIButton
           onClick={handleLoadMoreImages}
           isDisabled={!areMoreAvailable}
           isLoading={isFetching}
-          loadingText="Loading"
+          loadingText={t('gallery.loading')}
           flexShrink={0}
         >
           {`Load More (${currentData.ids.length} of ${currentViewTotal})`}
@@ -153,7 +197,7 @@ const GalleryImageGrid = () => {
     return (
       <Box sx={{ w: 'full', h: 'full' }}>
         <IAINoContentFallback
-          label="Unable to load Gallery"
+          label={t('gallery.unableToLoad')}
           icon={FaExclamationCircle}
         />
       </Box>

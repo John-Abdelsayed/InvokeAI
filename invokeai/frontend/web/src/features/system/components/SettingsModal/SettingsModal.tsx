@@ -9,39 +9,43 @@ import {
   ModalHeader,
   ModalOverlay,
   Text,
-  useDisclosure,
   useColorMode,
+  useDisclosure,
 } from '@chakra-ui/react';
-import { createSelector } from '@reduxjs/toolkit';
 import { VALID_LOG_LEVELS } from 'app/logging/logger';
-import { LOCALSTORAGE_KEYS, LOCALSTORAGE_PREFIX } from 'app/store/constants';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
 import IAIButton from 'common/components/IAIButton';
 import IAIMantineSelect from 'common/components/IAIMantineSelect';
-import { setShouldShowAdvancedOptions } from 'features/parameters/store/generationSlice';
+import { useClearStorage } from 'common/hooks/useClearStorage';
+import { useFeatureStatus } from 'features/system/hooks/useFeatureStatus';
+import { languageSelector } from 'features/system/store/systemSelectors';
 import {
   consoleLogLevelChanged,
+  languageChanged,
   setEnableImageDebugging,
-  setIsNodesEnabled,
   setShouldConfirmOnDelete,
+  setShouldEnableInformationalPopovers,
   shouldAntialiasProgressImageChanged,
   shouldLogToConsoleChanged,
   shouldUseNSFWCheckerChanged,
   shouldUseWatermarkerChanged,
 } from 'features/system/store/systemSlice';
+import { LANGUAGES } from 'features/system/store/types';
 import {
+  setShouldAutoChangeDimensions,
   setShouldShowProgressInViewer,
-  setShouldUseCanvasBetaLayout,
   setShouldUseSliders,
 } from 'features/ui/store/uiSlice';
-import { isEqual } from 'lodash-es';
 import {
   ChangeEvent,
   ReactElement,
   cloneElement,
+  memo,
   useCallback,
   useEffect,
+  useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LogLevelName } from 'roarr';
@@ -50,60 +54,45 @@ import SettingSwitch from './SettingSwitch';
 import SettingsClearIntermediates from './SettingsClearIntermediates';
 import SettingsSchedulers from './SettingsSchedulers';
 import StyledFlex from './StyledFlex';
-import { useFeatureStatus } from '../../hooks/useFeatureStatus';
-import { LANGUAGES } from '../../store/constants';
-import { languageChanged } from '../../store/systemSlice';
-import { languageSelector } from '../../store/systemSelectors';
 
-const selector = createSelector(
-  [stateSelector],
-  ({ system, ui, generation }) => {
-    const {
-      shouldConfirmOnDelete,
-      enableImageDebugging,
-      consoleLogLevel,
-      shouldLogToConsole,
-      shouldAntialiasProgressImage,
-      isNodesEnabled,
-      shouldUseNSFWChecker,
-      shouldUseWatermarker,
-    } = system;
+const selector = createMemoizedSelector([stateSelector], ({ system, ui }) => {
+  const {
+    shouldConfirmOnDelete,
+    enableImageDebugging,
+    consoleLogLevel,
+    shouldLogToConsole,
+    shouldAntialiasProgressImage,
+    shouldUseNSFWChecker,
+    shouldUseWatermarker,
+    shouldEnableInformationalPopovers,
+  } = system;
 
-    const {
-      shouldUseCanvasBetaLayout,
-      shouldUseSliders,
-      shouldShowProgressInViewer,
-    } = ui;
+  const {
+    shouldUseSliders,
+    shouldShowProgressInViewer,
+    shouldAutoChangeDimensions,
+  } = ui;
 
-    const { shouldShowAdvancedOptions } = generation;
-
-    return {
-      shouldConfirmOnDelete,
-      enableImageDebugging,
-      shouldUseCanvasBetaLayout,
-      shouldUseSliders,
-      shouldShowProgressInViewer,
-      consoleLogLevel,
-      shouldLogToConsole,
-      shouldAntialiasProgressImage,
-      shouldShowAdvancedOptions,
-      isNodesEnabled,
-      shouldUseNSFWChecker,
-      shouldUseWatermarker,
-    };
-  },
-  {
-    memoizeOptions: { resultEqualityCheck: isEqual },
-  }
-);
+  return {
+    shouldConfirmOnDelete,
+    enableImageDebugging,
+    shouldUseSliders,
+    shouldShowProgressInViewer,
+    consoleLogLevel,
+    shouldLogToConsole,
+    shouldAntialiasProgressImage,
+    shouldUseNSFWChecker,
+    shouldUseWatermarker,
+    shouldAutoChangeDimensions,
+    shouldEnableInformationalPopovers,
+  };
+});
 
 type ConfigOptions = {
   shouldShowDeveloperSettings: boolean;
   shouldShowResetWebUiText: boolean;
-  shouldShowBetaLayout: boolean;
   shouldShowAdvancedOptionsSettings: boolean;
   shouldShowClearIntermediates: boolean;
-  shouldShowNodesToggle: boolean;
   shouldShowLocalizationToggle: boolean;
 };
 
@@ -116,16 +105,13 @@ type SettingsModalProps = {
 const SettingsModal = ({ children, config }: SettingsModalProps) => {
   const dispatch = useAppDispatch();
   const { t } = useTranslation();
+  const [countdown, setCountdown] = useState(3);
 
-  const shouldShowBetaLayout = config?.shouldShowBetaLayout ?? true;
   const shouldShowDeveloperSettings =
     config?.shouldShowDeveloperSettings ?? true;
   const shouldShowResetWebUiText = config?.shouldShowResetWebUiText ?? true;
-  const shouldShowAdvancedOptionsSettings =
-    config?.shouldShowAdvancedOptionsSettings ?? true;
   const shouldShowClearIntermediates =
     config?.shouldShowClearIntermediates ?? true;
-  const shouldShowNodesToggle = config?.shouldShowNodesToggle ?? true;
   const shouldShowLocalizationToggle =
     config?.shouldShowLocalizationToggle ?? true;
 
@@ -160,31 +146,31 @@ const SettingsModal = ({ children, config }: SettingsModalProps) => {
   const {
     shouldConfirmOnDelete,
     enableImageDebugging,
-    shouldUseCanvasBetaLayout,
     shouldUseSliders,
     shouldShowProgressInViewer,
     consoleLogLevel,
     shouldLogToConsole,
     shouldAntialiasProgressImage,
-    shouldShowAdvancedOptions,
-    isNodesEnabled,
     shouldUseNSFWChecker,
     shouldUseWatermarker,
+    shouldAutoChangeDimensions,
+    shouldEnableInformationalPopovers,
   } = useAppSelector(selector);
 
+  const clearStorage = useClearStorage();
+
   const handleClickResetWebUI = useCallback(() => {
-    // Only remove our keys
-    Object.keys(window.localStorage).forEach((key) => {
-      if (
-        LOCALSTORAGE_KEYS.includes(key) ||
-        key.startsWith(LOCALSTORAGE_PREFIX)
-      ) {
-        localStorage.removeItem(key);
-      }
-    });
+    clearStorage();
     onSettingsModalClose();
     onRefreshModalOpen();
-  }, [onSettingsModalClose, onRefreshModalOpen]);
+    setInterval(() => setCountdown((prev) => prev - 1), 1000);
+  }, [clearStorage, onSettingsModalClose, onRefreshModalOpen]);
+
+  useEffect(() => {
+    if (countdown <= 0) {
+      window.location.reload();
+    }
+  }, [countdown]);
 
   const handleLogLevelChanged = useCallback(
     (v: string) => {
@@ -207,18 +193,66 @@ const SettingsModal = ({ children, config }: SettingsModalProps) => {
     [dispatch]
   );
 
-  const handleToggleNodes = useCallback(
-    (e: ChangeEvent<HTMLInputElement>) => {
-      dispatch(setIsNodesEnabled(e.target.checked));
-    },
-    [dispatch]
-  );
-
   const { colorMode, toggleColorMode } = useColorMode();
 
   const isLocalizationEnabled =
     useFeatureStatus('localization').isFeatureEnabled;
   const language = useAppSelector(languageSelector);
+
+  const handleChangeShouldConfirmOnDelete = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      dispatch(setShouldConfirmOnDelete(e.target.checked));
+    },
+    [dispatch]
+  );
+  const handleChangeShouldUseNSFWChecker = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      dispatch(shouldUseNSFWCheckerChanged(e.target.checked));
+    },
+    [dispatch]
+  );
+  const handleChangeShouldUseWatermarker = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      dispatch(shouldUseWatermarkerChanged(e.target.checked));
+    },
+    [dispatch]
+  );
+  const handleChangeShouldUseSliders = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      dispatch(setShouldUseSliders(e.target.checked));
+    },
+    [dispatch]
+  );
+  const handleChangeShouldShowProgressInViewer = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      dispatch(setShouldShowProgressInViewer(e.target.checked));
+    },
+    [dispatch]
+  );
+  const handleChangeShouldAntialiasProgressImage = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      dispatch(shouldAntialiasProgressImageChanged(e.target.checked));
+    },
+    [dispatch]
+  );
+  const handleChangeShouldAutoChangeDimensions = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      dispatch(setShouldAutoChangeDimensions(e.target.checked));
+    },
+    [dispatch]
+  );
+  const handleChangeShouldEnableInformationalPopovers = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      dispatch(setShouldEnableInformationalPopovers(e.target.checked));
+    },
+    [dispatch]
+  );
+  const handleChangeEnableImageDebugging = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      dispatch(setEnableImageDebugging(e.target.checked));
+    },
+    [dispatch]
+  );
 
   return (
     <>
@@ -243,39 +277,24 @@ const SettingsModal = ({ children, config }: SettingsModalProps) => {
                 <SettingSwitch
                   label={t('settings.confirmOnDelete')}
                   isChecked={shouldConfirmOnDelete}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    dispatch(setShouldConfirmOnDelete(e.target.checked))
-                  }
+                  onChange={handleChangeShouldConfirmOnDelete}
                 />
-                {shouldShowAdvancedOptionsSettings && (
-                  <SettingSwitch
-                    label={t('settings.showAdvancedOptions')}
-                    isChecked={shouldShowAdvancedOptions}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                      dispatch(setShouldShowAdvancedOptions(e.target.checked))
-                    }
-                  />
-                )}
               </StyledFlex>
 
               <StyledFlex>
                 <Heading size="sm">{t('settings.generation')}</Heading>
                 <SettingsSchedulers />
                 <SettingSwitch
-                  label="Enable NSFW Checker"
+                  label={t('settings.enableNSFWChecker')}
                   isDisabled={!isNSFWCheckerAvailable}
                   isChecked={shouldUseNSFWChecker}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    dispatch(shouldUseNSFWCheckerChanged(e.target.checked))
-                  }
+                  onChange={handleChangeShouldUseNSFWChecker}
                 />
                 <SettingSwitch
-                  label="Enable Invisible Watermark"
+                  label={t('settings.enableInvisibleWatermark')}
                   isDisabled={!isWatermarkerAvailable}
                   isChecked={shouldUseWatermarker}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    dispatch(shouldUseWatermarkerChanged(e.target.checked))
-                  }
+                  onChange={handleChangeShouldUseWatermarker}
                 />
               </StyledFlex>
 
@@ -289,45 +308,23 @@ const SettingsModal = ({ children, config }: SettingsModalProps) => {
                 <SettingSwitch
                   label={t('settings.useSlidersForAll')}
                   isChecked={shouldUseSliders}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    dispatch(setShouldUseSliders(e.target.checked))
-                  }
+                  onChange={handleChangeShouldUseSliders}
                 />
                 <SettingSwitch
                   label={t('settings.showProgressInViewer')}
                   isChecked={shouldShowProgressInViewer}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    dispatch(setShouldShowProgressInViewer(e.target.checked))
-                  }
+                  onChange={handleChangeShouldShowProgressInViewer}
                 />
                 <SettingSwitch
                   label={t('settings.antialiasProgressImages')}
                   isChecked={shouldAntialiasProgressImage}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    dispatch(
-                      shouldAntialiasProgressImageChanged(e.target.checked)
-                    )
-                  }
+                  onChange={handleChangeShouldAntialiasProgressImage}
                 />
-                {shouldShowBetaLayout && (
-                  <SettingSwitch
-                    label={t('settings.alternateCanvasLayout')}
-                    useBadge
-                    badgeLabel={t('settings.beta')}
-                    isChecked={shouldUseCanvasBetaLayout}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                      dispatch(setShouldUseCanvasBetaLayout(e.target.checked))
-                    }
-                  />
-                )}
-                {shouldShowNodesToggle && (
-                  <SettingSwitch
-                    label={t('settings.enableNodesEditor')}
-                    useBadge
-                    isChecked={isNodesEnabled}
-                    onChange={handleToggleNodes}
-                  />
-                )}
+                <SettingSwitch
+                  label={t('settings.autoChangeDimensions')}
+                  isChecked={shouldAutoChangeDimensions}
+                  onChange={handleChangeShouldAutoChangeDimensions}
+                />
                 {shouldShowLocalizationToggle && (
                   <IAIMantineSelect
                     disabled={!isLocalizationEnabled}
@@ -340,6 +337,11 @@ const SettingsModal = ({ children, config }: SettingsModalProps) => {
                     onChange={handleLanguageChanged}
                   />
                 )}
+                <SettingSwitch
+                  label={t('settings.enableInformationalPopovers')}
+                  isChecked={shouldEnableInformationalPopovers}
+                  onChange={handleChangeShouldEnableInformationalPopovers}
+                />
               </StyledFlex>
 
               {shouldShowDeveloperSettings && (
@@ -360,9 +362,7 @@ const SettingsModal = ({ children, config }: SettingsModalProps) => {
                   <SettingSwitch
                     label={t('settings.enableImageDebugging')}
                     isChecked={enableImageDebugging}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                      dispatch(setEnableImageDebugging(e.target.checked))
-                    }
+                    onChange={handleChangeEnableImageDebugging}
                   />
                 </StyledFlex>
               )}
@@ -401,6 +401,7 @@ const SettingsModal = ({ children, config }: SettingsModalProps) => {
         isOpen={isRefreshModalOpen}
         onClose={onRefreshModalClose}
         isCentered
+        closeOnEsc={false}
       >
         <ModalOverlay backdropFilter="blur(40px)" />
         <ModalContent>
@@ -408,7 +409,10 @@ const SettingsModal = ({ children, config }: SettingsModalProps) => {
           <ModalBody>
             <Flex justifyContent="center">
               <Text fontSize="lg">
-                <Text>{t('settings.resetComplete')}</Text>
+                <Text>
+                  {t('settings.resetComplete')} {t('settings.reloadingIn')}{' '}
+                  {countdown}...
+                </Text>
               </Text>
             </Flex>
           </ModalBody>
@@ -419,4 +423,4 @@ const SettingsModal = ({ children, config }: SettingsModalProps) => {
   );
 };
 
-export default SettingsModal;
+export default memo(SettingsModal);

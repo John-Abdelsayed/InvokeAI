@@ -1,19 +1,21 @@
-import os
 import json
-import invokeai.backend.util.logging as logger
+import os
 from enum import Enum
-from pydantic import Field
 from typing import Literal, Optional
+
+from omegaconf import OmegaConf
+from pydantic import Field
+
 from .base import (
-    ModelConfigBase,
     BaseModelType,
+    DiffusersModel,
+    InvalidModelException,
+    ModelConfigBase,
     ModelType,
     ModelVariantType,
-    DiffusersModel,
-    read_checkpoint_meta,
     classproperty,
+    read_checkpoint_meta,
 )
-from omegaconf import OmegaConf
 
 
 class StableDiffusionXLModelFormat(str, Enum):
@@ -65,7 +67,7 @@ class StableDiffusionXLModel(DiffusersModel):
                 in_channels = unet_config["in_channels"]
 
             else:
-                raise Exception("Not supported stable diffusion diffusers format(possibly onnx?)")
+                raise InvalidModelException(f"{path} is not a recognized Stable Diffusion diffusers model")
 
         else:
             raise NotImplementedError(f"Unknown stable diffusion 2.* format: {model_format}")
@@ -80,8 +82,10 @@ class StableDiffusionXLModel(DiffusersModel):
             raise Exception("Unkown stable diffusion 2.* model format")
 
         if ckpt_config_path is None:
-            # TO DO: implement picking
-            pass
+            # avoid circular import
+            from .stable_diffusion import _select_ckpt_config
+
+            ckpt_config_path = _select_ckpt_config(kwargs.get("model_base", BaseModelType.StableDiffusionXL), variant)
 
         return cls.create_config(
             path=path,

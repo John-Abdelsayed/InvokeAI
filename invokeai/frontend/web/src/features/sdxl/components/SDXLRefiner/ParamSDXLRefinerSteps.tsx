@@ -1,7 +1,6 @@
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
 import IAINumberInput from 'common/components/IAINumberInput';
 import IAISlider from 'common/components/IAISlider';
 import { setRefinerSteps } from 'features/sdxl/store/sdxlSlice';
@@ -9,19 +8,15 @@ import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useIsRefinerAvailable } from 'services/api/hooks/useIsRefinerAvailable';
 
-const selector = createSelector(
-  [stateSelector],
-  ({ sdxl, ui }) => {
-    const { refinerSteps } = sdxl;
-    const { shouldUseSliders } = ui;
+const selector = createMemoizedSelector([stateSelector], ({ sdxl, ui }) => {
+  const { refinerSteps } = sdxl;
+  const { shouldUseSliders } = ui;
 
-    return {
-      refinerSteps,
-      shouldUseSliders,
-    };
-  },
-  defaultSelectorOptions
-);
+  return {
+    refinerSteps,
+    shouldUseSliders,
+  };
+});
 
 const ParamSDXLRefinerSteps = () => {
   const { refinerSteps, shouldUseSliders } = useAppSelector(selector);
@@ -42,7 +37,7 @@ const ParamSDXLRefinerSteps = () => {
 
   return shouldUseSliders ? (
     <IAISlider
-      label={t('parameters.steps')}
+      label={t('sdxl.steps')}
       min={1}
       max={100}
       step={1}
@@ -57,7 +52,7 @@ const ParamSDXLRefinerSteps = () => {
     />
   ) : (
     <IAINumberInput
-      label={t('parameters.steps')}
+      label={t('sdxl.steps')}
       min={1}
       max={500}
       step={1}

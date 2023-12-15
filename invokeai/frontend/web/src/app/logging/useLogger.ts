@@ -1,31 +1,27 @@
-import { useStore } from '@nanostores/react';
-import { createSelector } from '@reduxjs/toolkit';
 import { createLogWriter } from '@roarr/browser-log-writer';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
+import { stateSelector } from 'app/store/store';
 import { useAppSelector } from 'app/store/storeHooks';
-import { systemSelector } from 'features/system/store/systemSelectors';
-import { isEqual } from 'lodash-es';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { ROARR, Roarr } from 'roarr';
-import { $logger, BASE_CONTEXT, LOG_LEVEL_MAP } from './logger';
+import {
+  $logger,
+  BASE_CONTEXT,
+  LOG_LEVEL_MAP,
+  LoggerNamespace,
+  logger,
+} from './logger';
 
-const selector = createSelector(
-  systemSelector,
-  (system) => {
-    const { consoleLogLevel, shouldLogToConsole } = system;
+const selector = createMemoizedSelector(stateSelector, ({ system }) => {
+  const { consoleLogLevel, shouldLogToConsole } = system;
 
-    return {
-      consoleLogLevel,
-      shouldLogToConsole,
-    };
-  },
-  {
-    memoizeOptions: {
-      resultEqualityCheck: isEqual,
-    },
-  }
-);
+  return {
+    consoleLogLevel,
+    shouldLogToConsole,
+  };
+});
 
-export const useLogger = () => {
+export const useLogger = (namespace: LoggerNamespace) => {
   const { consoleLogLevel, shouldLogToConsole } = useAppSelector(selector);
 
   // The provided Roarr browser log writer uses localStorage to config logging to console
@@ -57,7 +53,7 @@ export const useLogger = () => {
     $logger.set(Roarr.child(newContext));
   }, []);
 
-  const logger = useStore($logger);
+  const log = useMemo(() => logger(namespace), [namespace]);
 
-  return logger;
+  return log;
 };

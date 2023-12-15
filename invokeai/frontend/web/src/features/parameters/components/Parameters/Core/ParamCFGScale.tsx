@@ -1,14 +1,14 @@
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
+import IAIInformationalPopover from 'common/components/IAIInformationalPopover/IAIInformationalPopover';
 import IAINumberInput from 'common/components/IAINumberInput';
 import IAISlider from 'common/components/IAISlider';
 import { setCfgScale } from 'features/parameters/store/generationSlice';
 import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
-const selector = createSelector(
+const selector = createMemoizedSelector(
   [stateSelector],
   ({ generation, config, ui, hotkeys }) => {
     const { initial, min, sliderMax, inputMax } = config.sd.guidance;
@@ -25,8 +25,7 @@ const selector = createSelector(
       shouldUseSliders,
       shift,
     };
-  },
-  defaultSelectorOptions
+  }
 );
 
 const ParamCFGScale = () => {
@@ -53,31 +52,35 @@ const ParamCFGScale = () => {
   );
 
   return shouldUseSliders ? (
-    <IAISlider
-      label={t('parameters.cfgScale')}
-      step={shift ? 0.1 : 0.5}
-      min={min}
-      max={sliderMax}
-      onChange={handleChange}
-      handleReset={handleReset}
-      value={cfgScale}
-      sliderNumberInputProps={{ max: inputMax }}
-      withInput
-      withReset
-      withSliderMarks
-      isInteger={false}
-    />
+    <IAIInformationalPopover feature="paramCFGScale">
+      <IAISlider
+        label={t('parameters.cfgScale')}
+        step={shift ? 0.1 : 0.5}
+        min={min}
+        max={sliderMax}
+        onChange={handleChange}
+        handleReset={handleReset}
+        value={cfgScale}
+        sliderNumberInputProps={{ max: inputMax }}
+        withInput
+        withReset
+        withSliderMarks
+        isInteger={false}
+      />
+    </IAIInformationalPopover>
   ) : (
-    <IAINumberInput
-      label={t('parameters.cfgScale')}
-      step={0.5}
-      min={min}
-      max={inputMax}
-      onChange={handleChange}
-      value={cfgScale}
-      isInteger={false}
-      numberInputFieldProps={{ textAlign: 'center' }}
-    />
+    <IAIInformationalPopover feature="paramCFGScale">
+      <IAINumberInput
+        label={t('parameters.cfgScale')}
+        step={0.5}
+        min={min}
+        max={inputMax}
+        onChange={handleChange}
+        value={cfgScale}
+        isInteger={false}
+        numberInputFieldProps={{ textAlign: 'center' }}
+      />
+    </IAIInformationalPopover>
   );
 };
 

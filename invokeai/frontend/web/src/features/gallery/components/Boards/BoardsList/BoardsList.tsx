@@ -1,26 +1,21 @@
 import { Collapse, Flex, Grid, GridItem } from '@chakra-ui/react';
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
+import DeleteBoardModal from 'features/gallery/components/Boards/DeleteBoardModal';
 import { OverlayScrollbarsComponent } from 'overlayscrollbars-react';
 import { memo, useState } from 'react';
 import { useListAllBoardsQuery } from 'services/api/endpoints/boards';
 import { BoardDTO } from 'services/api/types';
-import DeleteBoardModal from '../DeleteBoardModal';
 import AddBoardButton from './AddBoardButton';
 import BoardsSearch from './BoardsSearch';
 import GalleryBoard from './GalleryBoard';
 import NoBoardBoard from './NoBoardBoard';
 
-const selector = createSelector(
-  [stateSelector],
-  ({ gallery }) => {
-    const { selectedBoardId, boardSearchText } = gallery;
-    return { selectedBoardId, boardSearchText };
-  },
-  defaultSelectorOptions
-);
+const selector = createMemoizedSelector([stateSelector], ({ gallery }) => {
+  const { selectedBoardId, boardSearchText } = gallery;
+  return { selectedBoardId, boardSearchText };
+});
 
 type Props = {
   isOpen: boolean;
@@ -41,7 +36,7 @@ const BoardsList = (props: Props) => {
     <>
       <Collapse in={isOpen} animateOpacity>
         <Flex
-          layerStyle={'first'}
+          layerStyle="first"
           sx={{
             flexDir: 'column',
             gap: 2,
@@ -68,17 +63,22 @@ const BoardsList = (props: Props) => {
           >
             <Grid
               className="list-container"
+              data-testid="boards-list"
               sx={{
                 gridTemplateColumns: `repeat(auto-fill, minmax(108px, 1fr));`,
                 maxH: 346,
               }}
             >
-              <GridItem sx={{ p: 1.5 }}>
+              <GridItem sx={{ p: 1.5 }} data-testid="no-board">
                 <NoBoardBoard isSelected={selectedBoardId === 'none'} />
               </GridItem>
               {filteredBoards &&
-                filteredBoards.map((board) => (
-                  <GridItem key={board.board_id} sx={{ p: 1.5 }}>
+                filteredBoards.map((board, index) => (
+                  <GridItem
+                    key={board.board_id}
+                    sx={{ p: 1.5 }}
+                    data-testid={`board-${index}`}
+                  >
                     <GalleryBoard
                       board={board}
                       isSelected={selectedBoardId === board.board_id}

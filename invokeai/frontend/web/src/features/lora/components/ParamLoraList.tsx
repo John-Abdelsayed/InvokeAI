@@ -1,30 +1,28 @@
-import { createSelector } from '@reduxjs/toolkit';
+import { Divider, Flex } from '@chakra-ui/react';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
 import { map } from 'lodash-es';
+import { memo } from 'react';
 import ParamLora from './ParamLora';
 
-const selector = createSelector(
-  stateSelector,
-  ({ lora }) => {
-    const { loras } = lora;
-
-    return { loras };
-  },
-  defaultSelectorOptions
-);
+const selector = createMemoizedSelector(stateSelector, ({ lora }) => {
+  return { lorasArray: map(lora.loras) };
+});
 
 const ParamLoraList = () => {
-  const { loras } = useAppSelector(selector);
+  const { lorasArray } = useAppSelector(selector);
 
   return (
     <>
-      {map(loras, (lora) => (
-        <ParamLora key={lora.model_name} lora={lora} />
+      {lorasArray.map((lora, i) => (
+        <Flex key={lora.model_name} sx={{ flexDirection: 'column', gap: 2 }}>
+          {i > 0 && <Divider pt={1} />}
+          <ParamLora lora={lora} />
+        </Flex>
       ))}
     </>
   );
 };
 
-export default ParamLoraList;
+export default memo(ParamLoraList);

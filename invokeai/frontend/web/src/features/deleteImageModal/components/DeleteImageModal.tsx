@@ -9,23 +9,28 @@ import {
   Flex,
   Text,
 } from '@chakra-ui/react';
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
+import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
 import IAIButton from 'common/components/IAIButton';
 import IAISwitch from 'common/components/IAISwitch';
+import { imageDeletionConfirmed } from 'features/deleteImageModal/store/actions';
+import {
+  getImageUsage,
+  selectImageUsage,
+} from 'features/deleteImageModal/store/selectors';
+import {
+  imageDeletionCanceled,
+  isModalOpenChanged,
+} from 'features/deleteImageModal/store/slice';
+import { ImageUsage } from 'features/deleteImageModal/store/types';
 import { setShouldConfirmOnDelete } from 'features/system/store/systemSlice';
-import { stateSelector } from 'app/store/store';
 import { some } from 'lodash-es';
 import { ChangeEvent, memo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { imageDeletionConfirmed } from '../store/actions';
-import { getImageUsage, selectImageUsage } from '../store/selectors';
-import { imageDeletionCanceled, isModalOpenChanged } from '../store/slice';
 import ImageUsageMessage from './ImageUsageMessage';
-import { ImageUsage } from '../store/types';
 
-const selector = createSelector(
+const selector = createMemoizedSelector(
   [stateSelector, selectImageUsage],
   (state, imagesUsage) => {
     const { system, config, deleteImageModal } = state;
@@ -41,7 +46,7 @@ const selector = createSelector(
       isInitialImage: some(allImageUsage, (i) => i.isInitialImage),
       isCanvasImage: some(allImageUsage, (i) => i.isCanvasImage),
       isNodesImage: some(allImageUsage, (i) => i.isNodesImage),
-      isControlNetImage: some(allImageUsage, (i) => i.isControlNetImage),
+      isControlImage: some(allImageUsage, (i) => i.isControlImage),
     };
 
     return {
@@ -52,8 +57,7 @@ const selector = createSelector(
       isModalOpen,
       imageUsageSummary,
     };
-  },
-  defaultSelectorOptions
+  }
 );
 
 const DeleteImageModal = () => {
@@ -124,10 +128,10 @@ const DeleteImageModal = () => {
           </AlertDialogBody>
           <AlertDialogFooter>
             <IAIButton ref={cancelRef} onClick={handleClose}>
-              Cancel
+              {t('boards.cancel')}
             </IAIButton>
             <IAIButton colorScheme="error" onClick={handleDelete} ml={3}>
-              Delete
+              {t('controlnet.delete')}
             </IAIButton>
           </AlertDialogFooter>
         </AlertDialogContent>

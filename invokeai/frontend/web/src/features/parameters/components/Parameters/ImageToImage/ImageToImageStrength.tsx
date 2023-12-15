@@ -1,13 +1,14 @@
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
+import IAIInformationalPopover from 'common/components/IAIInformationalPopover/IAIInformationalPopover';
 import IAISlider from 'common/components/IAISlider';
+import SubParametersWrapper from 'features/parameters/components/Parameters/SubParametersWrapper';
 import { setImg2imgStrength } from 'features/parameters/store/generationSlice';
 import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
-const selector = createSelector(
+const selector = createMemoizedSelector(
   [stateSelector],
   ({ generation, hotkeys, config }) => {
     const { initial, min, sliderMax, inputMax, fineStep, coarseStep } =
@@ -24,8 +25,7 @@ const selector = createSelector(
       inputMax,
       step,
     };
-  },
-  defaultSelectorOptions
+  }
 );
 
 const ImageToImageStrength = () => {
@@ -44,20 +44,24 @@ const ImageToImageStrength = () => {
   }, [dispatch, initial]);
 
   return (
-    <IAISlider
-      label={`${t('parameters.denoisingStrength')}`}
-      step={step}
-      min={min}
-      max={sliderMax}
-      onChange={handleChange}
-      handleReset={handleReset}
-      value={img2imgStrength}
-      isInteger={false}
-      withInput
-      withSliderMarks
-      withReset
-      sliderNumberInputProps={{ max: inputMax }}
-    />
+    <IAIInformationalPopover feature="paramDenoisingStrength">
+      <SubParametersWrapper>
+        <IAISlider
+          label={`${t('parameters.denoisingStrength')}`}
+          step={step}
+          min={min}
+          max={sliderMax}
+          onChange={handleChange}
+          handleReset={handleReset}
+          value={img2imgStrength}
+          isInteger={false}
+          withInput
+          withSliderMarks
+          withReset
+          sliderNumberInputProps={{ max: inputMax }}
+        />
+      </SubParametersWrapper>
+    </IAIInformationalPopover>
   );
 };
 

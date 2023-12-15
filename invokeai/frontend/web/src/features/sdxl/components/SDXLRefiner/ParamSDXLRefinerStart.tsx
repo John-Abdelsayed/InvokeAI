@@ -1,22 +1,18 @@
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
 import IAISlider from 'common/components/IAISlider';
 import { setRefinerStart } from 'features/sdxl/store/sdxlSlice';
 import { memo, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useIsRefinerAvailable } from 'services/api/hooks/useIsRefinerAvailable';
 
-const selector = createSelector(
-  [stateSelector],
-  ({ sdxl }) => {
-    const { refinerStart } = sdxl;
-    return {
-      refinerStart,
-    };
-  },
-  defaultSelectorOptions
-);
+const selector = createMemoizedSelector([stateSelector], ({ sdxl }) => {
+  const { refinerStart } = sdxl;
+  return {
+    refinerStart,
+  };
+});
 
 const ParamSDXLRefinerStart = () => {
   const { refinerStart } = useAppSelector(selector);
@@ -26,15 +22,16 @@ const ParamSDXLRefinerStart = () => {
     (v: number) => dispatch(setRefinerStart(v)),
     [dispatch]
   );
+  const { t } = useTranslation();
 
   const handleReset = useCallback(
-    () => dispatch(setRefinerStart(0.7)),
+    () => dispatch(setRefinerStart(0.8)),
     [dispatch]
   );
 
   return (
     <IAISlider
-      label="Refiner Start"
+      label={t('sdxl.refinerStart')}
       step={0.01}
       min={0}
       max={1}

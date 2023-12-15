@@ -1,26 +1,27 @@
-import { Box, Flex, Image } from '@chakra-ui/react';
-import { createSelector } from '@reduxjs/toolkit';
-import { skipToken } from '@reduxjs/toolkit/dist/query';
-import {
-  TypesafeDraggableData,
-  TypesafeDroppableData,
-} from 'app/components/ImageDnd/typesafeDnd';
+import { Box, Flex } from '@chakra-ui/react';
+import { skipToken } from '@reduxjs/toolkit/query';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppSelector } from 'app/store/storeHooks';
 import IAIDndImage from 'common/components/IAIDndImage';
 import { IAINoContentFallback } from 'common/components/IAIImageFallback';
+import {
+  TypesafeDraggableData,
+  TypesafeDroppableData,
+} from 'features/dnd/types';
+import ProgressImage from 'features/gallery/components/CurrentImage/ProgressImage';
+import ImageMetadataViewer from 'features/gallery/components/ImageMetadataViewer/ImageMetadataViewer';
+import NextPrevImageButtons from 'features/gallery/components/NextPrevImageButtons';
 import { useNextPrevImage } from 'features/gallery/hooks/useNextPrevImage';
 import { selectLastSelectedImage } from 'features/gallery/store/gallerySelectors';
 import { AnimatePresence, motion } from 'framer-motion';
-import { isEqual } from 'lodash-es';
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
+import { useTranslation } from 'react-i18next';
 import { FaImage } from 'react-icons/fa';
 import { useGetImageDTOQuery } from 'services/api/endpoints/images';
-import ImageMetadataViewer from '../ImageMetadataViewer/ImageMetadataViewer';
-import NextPrevImageButtons from '../NextPrevImageButtons';
 
-export const imagesSelector = createSelector(
+export const imagesSelector = createMemoizedSelector(
   [stateSelector, selectLastSelectedImage],
   ({ ui, system }, lastSelectedImage) => {
     const {
@@ -28,20 +29,14 @@ export const imagesSelector = createSelector(
       shouldHidePreview,
       shouldShowProgressInViewer,
     } = ui;
-    const { progressImage, shouldAntialiasProgressImage } = system;
+    const { denoiseProgress } = system;
     return {
       shouldShowImageDetails,
       shouldHidePreview,
       imageName: lastSelectedImage?.image_name,
-      progressImage,
+      hasDenoiseProgress: Boolean(denoiseProgress),
       shouldShowProgressInViewer,
-      shouldAntialiasProgressImage,
     };
-  },
-  {
-    memoizeOptions: {
-      resultEqualityCheck: isEqual,
-    },
   }
 );
 
@@ -49,9 +44,8 @@ const CurrentImagePreview = () => {
   const {
     shouldShowImageDetails,
     imageName,
-    progressImage,
+    hasDenoiseProgress,
     shouldShowProgressInViewer,
-    shouldAntialiasProgressImage,
   } = useAppSelector(imagesSelector);
 
   const {
@@ -117,6 +111,8 @@ const CurrentImagePreview = () => {
 
   const timeoutId = useRef(0);
 
+  const { t } = useTranslation();
+
   const handleMouseOver = useCallback(() => {
     setShouldShowNextPrevButtons(true);
     window.clearTimeout(timeoutId.current);
@@ -140,22 +136,8 @@ const CurrentImagePreview = () => {
         position: 'relative',
       }}
     >
-      {progressImage && shouldShowProgressInViewer ? (
-        <Image
-          src={progressImage.dataURL}
-          width={progressImage.width}
-          height={progressImage.height}
-          draggable={false}
-          sx={{
-            objectFit: 'contain',
-            maxWidth: 'full',
-            maxHeight: 'full',
-            height: 'auto',
-            position: 'absolute',
-            borderRadius: 'base',
-            imageRendering: shouldAntialiasProgressImage ? 'auto' : 'pixelated',
-          }}
-        />
+      {hasDenoiseProgress && shouldShowProgressInViewer ? (
+        <ProgressImage />
       ) : (
         <IAIDndImage
           imageDTO={imageDTO}
@@ -164,10 +146,14 @@ const CurrentImagePreview = () => {
           isUploadDisabled={true}
           fitContainer
           useThumbailFallback
-          dropLabel="Set as Current Image"
+          dropLabel={t('gallery.setCurrentImage')}
           noContentFallback={
-            <IAINoContentFallback icon={FaImage} label="No image selected" />
+            <IAINoContentFallback
+              icon={FaImage}
+              label={t('gallery.noImageSelected')}
+            />
           }
+          dataTestId="image-preview"
         />
       )}
       {shouldShowImageDetails && imageDTO && (

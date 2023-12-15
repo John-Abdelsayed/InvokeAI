@@ -1,29 +1,26 @@
+import inspect
 import json
 import os
 import sys
 import typing
-import inspect
-from enum import Enum
+import warnings
 from abc import ABCMeta, abstractmethod
-from pathlib import Path
-from picklescan.scanner import scan_file_path
-import torch
-import numpy as np
-import safetensors.torch
-from pathlib import Path
-from diffusers import DiffusionPipeline, ConfigMixin, OnnxRuntimeModel
-
 from contextlib import suppress
-from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Type, Literal, TypeVar, Generic, Callable, Any, Union
+from enum import Enum
+from pathlib import Path
+from typing import Any, Callable, Dict, Generic, List, Literal, Optional, Type, TypeVar, Union
 
+import numpy as np
 import onnx
+import safetensors.torch
+import torch
+from diffusers import ConfigMixin, DiffusionPipeline
+from diffusers import logging as diffusers_logging
 from onnx import numpy_helper
-from onnxruntime import (
-    InferenceSession,
-    SessionOptions,
-    get_available_providers,
-)
+from onnxruntime import InferenceSession, SessionOptions, get_available_providers
+from picklescan.scanner import scan_file_path
+from pydantic import BaseModel, ConfigDict, Field
+from transformers import logging as transformers_logging
 
 
 class DuplicateModelException(Exception):
@@ -39,6 +36,7 @@ class ModelNotFoundException(Exception):
 
 
 class BaseModelType(str, Enum):
+    Any = "any"  # For models that are not associated with any particular base model.
     StableDiffusion1 = "sd-1"
     StableDiffusion2 = "sd-2"
     StableDiffusionXL = "sdxl"
@@ -53,6 +51,9 @@ class ModelType(str, Enum):
     Lora = "lora"
     ControlNet = "controlnet"  # used by model_probe
     TextualInversion = "embedding"
+    IPAdapter = "ip_adapter"
+    CLIPVision = "clip_vision"
+    T2IAdapter = "t2i_adapter"
 
 
 class SubModelType(str, Enum):
@@ -85,14 +86,21 @@ class ModelError(str, Enum):
     NotFound = "not_found"
 
 
+def model_config_json_schema_extra(schema: dict[str, Any]) -> None:
+    if "required" not in schema:
+        schema["required"] = []
+    schema["required"].append("model_type")
+
+
 class ModelConfigBase(BaseModel):
     path: str  # or Path
     description: Optional[str] = Field(None)
     model_format: Optional[str] = Field(None)
     error: Optional[ModelError] = Field(None)
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(
+        use_enum_values=True, protected_namespaces=(), json_schema_extra=model_config_json_schema_extra
+    )
 
 
 class EmptyConfigLoader(ConfigMixin):
@@ -145,7 +153,7 @@ class ModelBase(metaclass=ABCMeta):
 
         else:
             res_type = sys.modules["diffusers"]
-            res_type = getattr(res_type, "pipelines")
+            res_type = res_type.pipelines
 
         for subtype in subtypes:
             res_type = getattr(res_type, subtype)
@@ -156,7 +164,7 @@ class ModelBase(metaclass=ABCMeta):
         with suppress(Exception):
             return cls.__configs
 
-        configs = dict()
+        configs = {}
         for name in dir(cls):
             if name.startswith("__"):
                 continue
@@ -171,7 +179,7 @@ class ModelBase(metaclass=ABCMeta):
                 fields = value.__annotations__
             try:
                 field = fields["model_format"]
-            except:
+            except Exception:
                 raise Exception(f"Invalid config definition - format field not found({cls.__qualname__})")
 
             if isinstance(field, type) and issubclass(field, str) and issubclass(field, Enum):
@@ -238,13 +246,13 @@ class DiffusersModel(ModelBase):
     def __init__(self, model_path: str, base_model: BaseModelType, model_type: ModelType):
         super().__init__(model_path, base_model, model_type)
 
-        self.child_types: Dict[str, Type] = dict()
-        self.child_sizes: Dict[str, int] = dict()
+        self.child_types: Dict[str, Type] = {}
+        self.child_sizes: Dict[str, int] = {}
 
         try:
             config_data = DiffusionPipeline.load_config(self.model_path)
             # config_data = json.loads(os.path.join(self.model_path, "model_index.json"))
-        except:
+        except Exception:
             raise Exception("Invalid diffusers model! (model_index.json not found or invalid)")
 
         config_data.pop("_ignore_files", None)
@@ -318,8 +326,8 @@ def calc_model_size_by_fs(model_path: str, subfolder: Optional[str] = None, vari
     all_files = os.listdir(model_path)
     all_files = [f for f in all_files if os.path.isfile(os.path.join(model_path, f))]
 
-    fp16_files = set([f for f in all_files if ".fp16." in f or ".fp16-" in f])
-    bit8_files = set([f for f in all_files if ".8bit." in f or ".8bit-" in f])
+    fp16_files = {f for f in all_files if ".fp16." in f or ".fp16-" in f}
+    bit8_files = {f for f in all_files if ".8bit." in f or ".8bit-" in f}
     other_files = set(all_files) - fp16_files - bit8_files
 
     if variant is None:
@@ -343,7 +351,7 @@ def calc_model_size_by_fs(model_path: str, subfolder: Optional[str] = None, vari
             with open(os.path.join(model_path, file), "r") as f:
                 index_data = json.loads(f.read())
             return int(index_data["metadata"]["total_size"])
-        except:
+        except Exception:
             pass
 
     # calculate files size if there is no index file
@@ -405,7 +413,7 @@ def _calc_onnx_model_by_data(model) -> int:
 
 
 def _fast_safetensors_reader(path: str):
-    checkpoint = dict()
+    checkpoint = {}
     device = torch.device("meta")
     with open(path, "rb") as f:
         definition_len = int.from_bytes(f.read(8), "little")
@@ -440,7 +448,7 @@ def read_checkpoint_meta(path: Union[str, Path], scan: bool = False):
     if str(path).endswith(".safetensors"):
         try:
             checkpoint = _fast_safetensors_reader(path)
-        except:
+        except Exception:
             # TODO: create issue for support "meta"?
             checkpoint = safetensors.torch.load_file(path, device="cpu")
     else:
@@ -450,11 +458,6 @@ def read_checkpoint_meta(path: Union[str, Path], scan: bool = False):
                 raise Exception(f'The model file "{path}" is potentially infected by malware. Aborting import.')
         checkpoint = torch.load(path, map_location=torch.device("meta"))
     return checkpoint
-
-
-import warnings
-from diffusers import logging as diffusers_logging
-from transformers import logging as transformers_logging
 
 
 class SilenceWarnings(object):
@@ -480,7 +483,7 @@ class IAIOnnxRuntimeModel:
     class _tensor_access:
         def __init__(self, model):
             self.model = model
-            self.indexes = dict()
+            self.indexes = {}
             for idx, obj in enumerate(self.model.proto.graph.initializer):
                 self.indexes[obj.name] = idx
 
@@ -521,7 +524,7 @@ class IAIOnnxRuntimeModel:
 
     class _access_helper:
         def __init__(self, raw_proto):
-            self.indexes = dict()
+            self.indexes = {}
             self.raw_proto = raw_proto
             for idx, obj in enumerate(raw_proto):
                 self.indexes[obj.name] = idx
@@ -546,7 +549,7 @@ class IAIOnnxRuntimeModel:
             return self.indexes.keys()
 
         def values(self):
-            return [obj for obj in self.raw_proto]
+            return list(self.raw_proto)
 
     def __init__(self, model_path: str, provider: Optional[str]):
         self.path = model_path
@@ -639,7 +642,7 @@ class IAIOnnxRuntimeModel:
             raise Exception("You should call create_session before running model")
 
         inputs = {k: np.array(v) for k, v in kwargs.items()}
-        output_names = self.session.get_outputs()
+        # output_names = self.session.get_outputs()
         # for k in inputs:
         #     self.io_binding.bind_cpu_input(k, inputs[k])
         # for name in output_names:

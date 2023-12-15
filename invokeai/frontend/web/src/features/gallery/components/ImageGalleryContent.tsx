@@ -8,39 +8,35 @@ import {
   VStack,
   useDisclosure,
 } from '@chakra-ui/react';
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
 import IAIButton from 'common/components/IAIButton';
+import { galleryViewChanged } from 'features/gallery/store/gallerySlice';
 import { memo, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FaImages, FaServer } from 'react-icons/fa';
-import { galleryViewChanged } from '../store/gallerySlice';
 import BoardsList from './Boards/BoardsList/BoardsList';
 import GalleryBoardName from './GalleryBoardName';
-import GalleryPinButton from './GalleryPinButton';
 import GallerySettingsPopover from './GallerySettingsPopover';
 import GalleryImageGrid from './ImageGrid/GalleryImageGrid';
 
-const selector = createSelector(
-  [stateSelector],
-  (state) => {
-    const { galleryView } = state.gallery;
+const selector = createMemoizedSelector([stateSelector], (state) => {
+  const { galleryView } = state.gallery;
 
-    return {
-      galleryView,
-    };
-  },
-  defaultSelectorOptions
-);
+  return {
+    galleryView,
+  };
+});
 
 const ImageGalleryContent = () => {
+  const { t } = useTranslation();
   const resizeObserverRef = useRef<HTMLDivElement>(null);
   const galleryGridRef = useRef<HTMLDivElement>(null);
   const { galleryView } = useAppSelector(selector);
   const dispatch = useAppDispatch();
   const { isOpen: isBoardListOpen, onToggle: onToggleBoardList } =
-    useDisclosure();
+    useDisclosure({ defaultIsOpen: true });
 
   const handleClickImages = useCallback(() => {
     dispatch(galleryViewChanged('images'));
@@ -52,11 +48,13 @@ const ImageGalleryContent = () => {
 
   return (
     <VStack
+      layerStyle="first"
       sx={{
         flexDirection: 'column',
         h: 'full',
         w: 'full',
         borderRadius: 'base',
+        p: 2,
       }}
     >
       <Box sx={{ w: 'full' }}>
@@ -73,7 +71,6 @@ const ImageGalleryContent = () => {
             onToggle={onToggleBoardList}
           />
           <GallerySettingsPopover />
-          <GalleryPinButton />
         </Flex>
         <Box>
           <BoardsList isOpen={isBoardListOpen} />
@@ -109,8 +106,9 @@ const ImageGalleryContent = () => {
                     w: 'full',
                   }}
                   leftIcon={<FaImages />}
+                  data-testid="images-tab"
                 >
-                  Images
+                  {t('parameters.images')}
                 </Tab>
                 <Tab
                   as={IAIButton}
@@ -121,8 +119,9 @@ const ImageGalleryContent = () => {
                     w: 'full',
                   }}
                   leftIcon={<FaServer />}
+                  data-testid="assets-tab"
                 >
-                  Assets
+                  {t('gallery.assets')}
                 </Tab>
               </ButtonGroup>
             </TabList>

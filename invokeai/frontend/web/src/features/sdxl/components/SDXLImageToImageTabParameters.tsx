@@ -1,6 +1,8 @@
 import ParamDynamicPromptsCollapse from 'features/dynamicPrompts/components/ParamDynamicPromptsCollapse';
-import ParamNoiseCollapse from 'features/parameters/components/Parameters/Noise/ParamNoiseCollapse';
-import ProcessButtons from 'features/parameters/components/ProcessButtons/ProcessButtons';
+import ParamLoraCollapse from 'features/lora/components/ParamLoraCollapse';
+import ParamAdvancedCollapse from 'features/parameters/components/Parameters/Advanced/ParamAdvancedCollapse';
+import ControlAdaptersCollapse from 'features/controlAdapters/components/ControlAdaptersCollapse';
+import { memo } from 'react';
 import ParamSDXLPromptArea from './ParamSDXLPromptArea';
 import ParamSDXLRefinerCollapse from './ParamSDXLRefinerCollapse';
 import SDXLImageToImageTabCoreParameters from './SDXLImageToImageTabCoreParameters';
@@ -9,13 +11,14 @@ const SDXLImageToImageTabParameters = () => {
   return (
     <>
       <ParamSDXLPromptArea />
-      <ProcessButtons />
       <SDXLImageToImageTabCoreParameters />
       <ParamSDXLRefinerCollapse />
+      <ControlAdaptersCollapse />
+      <ParamLoraCollapse />
       <ParamDynamicPromptsCollapse />
-      <ParamNoiseCollapse />
+      <ParamAdvancedCollapse />
     </>
   );
 };
 
-export default SDXLImageToImageTabParameters;
+export default memo(SDXLImageToImageTabParameters);

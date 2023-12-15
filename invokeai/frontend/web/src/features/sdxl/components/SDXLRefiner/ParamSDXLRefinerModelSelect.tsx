@@ -1,31 +1,30 @@
 import { Box, Flex } from '@chakra-ui/react';
 import { SelectItem } from '@mantine/core';
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
 import IAIMantineSearchableSelect from 'common/components/IAIMantineSearchableSelect';
+import SyncModelsButton from 'features/modelManager/subpanels/ModelManagerSettingsPanel/SyncModelsButton';
 import { MODEL_TYPE_MAP } from 'features/parameters/types/constants';
 import { modelIdToSDXLRefinerModelParam } from 'features/parameters/util/modelIdToSDXLRefinerModelParam';
 import { refinerModelChanged } from 'features/sdxl/store/sdxlSlice';
 import { useFeatureStatus } from 'features/system/hooks/useFeatureStatus';
-import SyncModelsButton from 'features/ui/components/tabs/ModelManager/subpanels/ModelManagerSettingsPanel/SyncModelsButton';
 import { forEach } from 'lodash-es';
 import { memo, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { REFINER_BASE_MODELS } from 'services/api/constants';
 import { useGetMainModelsQuery } from 'services/api/endpoints/models';
 
-const selector = createSelector(
-  stateSelector,
-  (state) => ({ model: state.sdxl.refinerModel }),
-  defaultSelectorOptions
-);
+const selector = createMemoizedSelector(stateSelector, (state) => ({
+  model: state.sdxl.refinerModel,
+}));
 
 const ParamSDXLRefinerModelSelect = () => {
   const dispatch = useAppDispatch();
   const isSyncModelEnabled = useFeatureStatus('syncModels').isFeatureEnabled;
 
   const { model } = useAppSelector(selector);
+  const { t } = useTranslation();
 
   const { data: refinerModels, isLoading } =
     useGetMainModelsQuery(REFINER_BASE_MODELS);
@@ -81,8 +80,8 @@ const ParamSDXLRefinerModelSelect = () => {
 
   return isLoading ? (
     <IAIMantineSearchableSelect
-      label="Refiner Model"
-      placeholder="Loading..."
+      label={t('sdxl.refinermodel')}
+      placeholder={t('sdxl.loading')}
       disabled={true}
       data={[]}
     />
@@ -90,9 +89,11 @@ const ParamSDXLRefinerModelSelect = () => {
     <Flex w="100%" alignItems="center" gap={2}>
       <IAIMantineSearchableSelect
         tooltip={selectedModel?.description}
-        label="Refiner Model"
+        label={t('sdxl.refinermodel')}
         value={selectedModel?.id}
-        placeholder={data.length > 0 ? 'Select a model' : 'No models available'}
+        placeholder={
+          data.length > 0 ? t('sdxl.selectAModel') : t('sdxl.noModelsAvailable')
+        }
         data={data}
         error={data.length === 0}
         disabled={data.length === 0}

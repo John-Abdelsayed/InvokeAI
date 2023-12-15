@@ -6,64 +6,63 @@
 #
 # Coauthor: Kevin Turner http://github.com/keturn
 #
-import sys
 import argparse
 import io
 import os
 import shutil
+import sys
 import textwrap
 import traceback
-import yaml
 import warnings
 from argparse import Namespace
+from enum import Enum
 from pathlib import Path
 from shutil import get_terminal_size
-from typing import get_type_hints
+from typing import Any, get_args, get_type_hints
 from urllib import request
 
 import npyscreen
-import transformers
 import omegaconf
+import psutil
+import torch
+import transformers
+import yaml
 from diffusers import AutoencoderKL
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 from huggingface_hub import HfFolder
 from huggingface_hub import login as hf_hub_login
 from omegaconf import OmegaConf
+from pydantic import ValidationError
 from tqdm import tqdm
-from transformers import (
-    CLIPTextModel,
-    CLIPTextConfig,
-    CLIPTokenizer,
-    AutoFeatureExtractor,
-    BertTokenizerFast,
-)
-import invokeai.configs as configs
+from transformers import AutoFeatureExtractor, BertTokenizerFast, CLIPTextConfig, CLIPTextModel, CLIPTokenizer
 
-from invokeai.app.services.config import (
-    InvokeAIAppConfig,
-)
+import invokeai.configs as configs
+from invokeai.app.services.config import InvokeAIAppConfig
+from invokeai.backend.install.legacy_arg_parsing import legacy_parser
+from invokeai.backend.install.model_install_backend import InstallSelections, ModelInstall, hf_download_from_pretrained
+from invokeai.backend.model_management.model_probe import BaseModelType, ModelType
 from invokeai.backend.util.logging import InvokeAILogger
 from invokeai.frontend.install.model_install import addModelsForm, process_and_execute
+
+# TO DO - Move all the frontend code into invokeai.frontend.install
 from invokeai.frontend.install.widgets import (
-    SingleSelectColumns,
-    CenteredButtonPress,
-    FileBox,
-    IntTitleSlider,
-    set_min_terminal_size,
-    CyclingForm,
     MIN_COLS,
     MIN_LINES,
+    CenteredButtonPress,
+    CyclingForm,
+    FileBox,
+    MultiSelectColumns,
+    SingleSelectColumnsSimple,
+    WindowTooSmallException,
+    set_min_terminal_size,
 )
-from invokeai.backend.install.legacy_arg_parsing import legacy_parser
-from invokeai.backend.install.model_install_backend import (
-    hf_download_from_pretrained,
-    InstallSelections,
-    ModelInstall,
-)
-from invokeai.backend.model_management.model_probe import ModelType, BaseModelType
 
 warnings.filterwarnings("ignore")
 transformers.logging.set_verbosity_error()
+
+
+def get_literal_fields(field) -> list[Any]:
+    return get_args(get_type_hints(InvokeAIAppConfig).get(field))
 
 
 # --------------------------globals-----------------------
@@ -71,11 +70,21 @@ transformers.logging.set_verbosity_error()
 config = InvokeAIAppConfig.get_config()
 
 Model_dir = "models"
-
 Default_config_file = config.model_conf_path
 SD_Configs = config.legacy_conf_path
 
-PRECISION_CHOICES = ["auto", "float16", "float32"]
+PRECISION_CHOICES = get_literal_fields("precision")
+DEVICE_CHOICES = get_literal_fields("device")
+ATTENTION_CHOICES = get_literal_fields("attention_type")
+ATTENTION_SLICE_CHOICES = get_literal_fields("attention_slice_size")
+GENERATION_OPT_CHOICES = ["sequential_guidance", "force_tiled_decode", "lazy_offload"]
+GB = 1073741824  # GB in bytes
+HAS_CUDA = torch.cuda.is_available()
+_, MAX_VRAM = torch.cuda.mem_get_info() if HAS_CUDA else (0, 0)
+
+
+MAX_VRAM /= GB
+MAX_RAM = psutil.virtual_memory().total / GB
 
 INIT_FILE_PREAMBLE = """# InvokeAI initialization file
 # This is the InvokeAI initialization file, which contains command-line default values.
@@ -83,7 +92,13 @@ INIT_FILE_PREAMBLE = """# InvokeAI initialization file
 # or renaming it and then running invokeai-configure again.
 """
 
-logger = InvokeAILogger.getLogger()
+logger = InvokeAILogger.get_logger()
+
+
+class DummyWidgetValue(Enum):
+    zero = 0
+    true = True
+    false = False
 
 
 # --------------------------------------------
@@ -182,7 +197,7 @@ def download_with_progress_bar(model_url: str, model_dest: str, label: str = "th
 
 def download_conversion_models():
     target_dir = config.models_path / "core/convert"
-    kwargs = dict()  # for future use
+    kwargs = {}  # for future use
     try:
         logger.info("Downloading core tokenizers and text encoders")
 
@@ -237,34 +252,45 @@ def download_conversion_models():
 def download_realesrgan():
     logger.info("Installing ESRGAN Upscaling models...")
     URLs = [
-        dict(
-            url="https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
-            dest="core/upscaling/realesrgan/RealESRGAN_x4plus.pth",
-            description="RealESRGAN_x4plus.pth",
-        ),
-        dict(
-            url="https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
-            dest="core/upscaling/realesrgan/RealESRGAN_x4plus_anime_6B.pth",
-            description="RealESRGAN_x4plus_anime_6B.pth",
-        ),
-        dict(
-            url="https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth",
-            dest="core/upscaling/realesrgan/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth",
-            description="ESRGAN_SRx4_DF2KOST_official.pth",
-        ),
-        dict(
-            url="https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
-            dest="core/upscaling/realesrgan/RealESRGAN_x2plus.pth",
-            description="RealESRGAN_x2plus.pth",
-        ),
+        {
+            "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+            "dest": "core/upscaling/realesrgan/RealESRGAN_x4plus.pth",
+            "description": "RealESRGAN_x4plus.pth",
+        },
+        {
+            "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
+            "dest": "core/upscaling/realesrgan/RealESRGAN_x4plus_anime_6B.pth",
+            "description": "RealESRGAN_x4plus_anime_6B.pth",
+        },
+        {
+            "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth",
+            "dest": "core/upscaling/realesrgan/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth",
+            "description": "ESRGAN_SRx4_DF2KOST_official.pth",
+        },
+        {
+            "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
+            "dest": "core/upscaling/realesrgan/RealESRGAN_x2plus.pth",
+            "description": "RealESRGAN_x2plus.pth",
+        },
     ]
     for model in URLs:
         download_with_progress_bar(model["url"], config.models_path / model["dest"], model["description"])
 
 
 # ---------------------------------------------
+def download_lama():
+    logger.info("Installing lama infill model")
+    download_with_progress_bar(
+        "https://github.com/Sanster/models/releases/download/add_big_lama/big-lama.pt",
+        config.models_path / "core/misc/lama/lama.pt",
+        "lama infill model",
+    )
+
+
+# ---------------------------------------------
 def download_support_models():
     download_realesrgan()
+    download_lama()
     download_conversion_models()
 
 
@@ -289,10 +315,11 @@ class editOptsForm(CyclingForm, npyscreen.FormMultiPage):
         first_time = not (config.root_path / "invokeai.yaml").exists()
         access_token = HfFolder.get_token()
         window_width, window_height = get_terminal_size()
-        label = """Configure startup settings. You can come back and change these later. 
+        label = """Configure startup settings. You can come back and change these later.
 Use ctrl-N and ctrl-P to move to the <N>ext and <P>revious fields.
 Use cursor arrows to make a checkbox selection, and space to toggle.
 """
+        self.nextrely -= 1
         for i in textwrap.wrap(label, width=window_width - 6):
             self.add_widget_intelligent(
                 npyscreen.FixedText,
@@ -319,72 +346,155 @@ Use cursor arrows to make a checkbox selection, and space to toggle.
             use_two_lines=False,
             scroll_exit=True,
         )
-        self.nextrely += 1
-        self.add_widget_intelligent(
-            npyscreen.TitleFixedText,
-            name="GPU Management",
-            begin_entry_at=0,
-            editable=False,
-            color="CONTROL",
-            scroll_exit=True,
-        )
-        self.nextrely -= 1
-        self.free_gpu_mem = self.add_widget_intelligent(
-            npyscreen.Checkbox,
-            name="Free GPU memory after each generation",
-            value=old_opts.free_gpu_mem,
-            max_width=45,
-            relx=5,
-            scroll_exit=True,
-        )
-        self.nextrely -= 1
-        self.xformers_enabled = self.add_widget_intelligent(
-            npyscreen.Checkbox,
-            name="Enable xformers support",
-            value=old_opts.xformers_enabled,
-            max_width=30,
-            relx=50,
-            scroll_exit=True,
-        )
-        self.nextrely -= 1
-        self.always_use_cpu = self.add_widget_intelligent(
-            npyscreen.Checkbox,
-            name="Force CPU to be used on GPU systems",
-            value=old_opts.always_use_cpu,
-            relx=80,
-            scroll_exit=True,
-        )
+
+        # old settings for defaults
         precision = old_opts.precision or ("float32" if program_opts.full_precision else "auto")
+        device = old_opts.device
+        attention_type = old_opts.attention_type
+        attention_slice_size = old_opts.attention_slice_size
         self.nextrely += 1
         self.add_widget_intelligent(
             npyscreen.TitleFixedText,
-            name="Floating Point Precision",
+            name="Image Generation Options:",
+            editable=False,
+            color="CONTROL",
+            scroll_exit=True,
+        )
+        self.nextrely -= 2
+        self.generation_options = self.add_widget_intelligent(
+            MultiSelectColumns,
+            columns=3,
+            values=GENERATION_OPT_CHOICES,
+            value=[GENERATION_OPT_CHOICES.index(x) for x in GENERATION_OPT_CHOICES if getattr(old_opts, x)],
+            relx=30,
+            max_height=2,
+            max_width=80,
+            scroll_exit=True,
+        )
+
+        self.add_widget_intelligent(
+            npyscreen.TitleFixedText,
+            name="Floating Point Precision:",
             begin_entry_at=0,
             editable=False,
             color="CONTROL",
             scroll_exit=True,
         )
-        self.nextrely -= 1
+        self.nextrely -= 2
         self.precision = self.add_widget_intelligent(
-            SingleSelectColumns,
-            columns=3,
+            SingleSelectColumnsSimple,
+            columns=len(PRECISION_CHOICES),
             name="Precision",
             values=PRECISION_CHOICES,
             value=PRECISION_CHOICES.index(precision),
             begin_entry_at=3,
             max_height=2,
+            relx=30,
+            max_width=56,
+            scroll_exit=True,
+        )
+        self.add_widget_intelligent(
+            npyscreen.TitleFixedText,
+            name="Generation Device:",
+            begin_entry_at=0,
+            editable=False,
+            color="CONTROL",
+            scroll_exit=True,
+        )
+        self.nextrely -= 2
+        self.device = self.add_widget_intelligent(
+            SingleSelectColumnsSimple,
+            columns=len(DEVICE_CHOICES),
+            values=DEVICE_CHOICES,
+            value=[DEVICE_CHOICES.index(device)],
+            begin_entry_at=3,
+            relx=30,
+            max_height=2,
+            max_width=60,
+            scroll_exit=True,
+        )
+        self.add_widget_intelligent(
+            npyscreen.TitleFixedText,
+            name="Attention Type:",
+            begin_entry_at=0,
+            editable=False,
+            color="CONTROL",
+            scroll_exit=True,
+        )
+        self.nextrely -= 2
+        self.attention_type = self.add_widget_intelligent(
+            SingleSelectColumnsSimple,
+            columns=len(ATTENTION_CHOICES),
+            values=ATTENTION_CHOICES,
+            value=[ATTENTION_CHOICES.index(attention_type)],
+            begin_entry_at=3,
+            max_height=2,
+            relx=30,
             max_width=80,
             scroll_exit=True,
         )
-        self.max_cache_size = self.add_widget_intelligent(
-            IntTitleSlider,
-            name="Size of the RAM cache used for fast model switching (GB)",
-            value=old_opts.max_cache_size,
-            out_of=20,
-            lowest=3,
-            begin_entry_at=6,
+        self.attention_type.on_changed = self.show_hide_slice_sizes
+        self.attention_slice_label = self.add_widget_intelligent(
+            npyscreen.TitleFixedText,
+            name="Attention Slice Size:",
+            relx=5,
+            editable=False,
+            hidden=attention_type != "sliced",
+            color="CONTROL",
             scroll_exit=True,
         )
+        self.nextrely -= 2
+        self.attention_slice_size = self.add_widget_intelligent(
+            SingleSelectColumnsSimple,
+            columns=len(ATTENTION_SLICE_CHOICES),
+            values=ATTENTION_SLICE_CHOICES,
+            value=[ATTENTION_SLICE_CHOICES.index(attention_slice_size)],
+            relx=30,
+            hidden=attention_type != "sliced",
+            max_height=2,
+            max_width=110,
+            scroll_exit=True,
+        )
+        self.add_widget_intelligent(
+            npyscreen.TitleFixedText,
+            name="Model RAM cache size (GB). Make this at least large enough to hold a single full model (2GB for SD-1, 6GB for SDXL).",
+            begin_entry_at=0,
+            editable=False,
+            color="CONTROL",
+            scroll_exit=True,
+        )
+        self.nextrely -= 1
+        self.ram = self.add_widget_intelligent(
+            npyscreen.Slider,
+            value=clip(old_opts.ram_cache_size, range=(3.0, MAX_RAM), step=0.5),
+            out_of=round(MAX_RAM),
+            lowest=0.0,
+            step=0.5,
+            relx=8,
+            scroll_exit=True,
+        )
+        if HAS_CUDA:
+            self.nextrely += 1
+            self.add_widget_intelligent(
+                npyscreen.TitleFixedText,
+                name="Model VRAM cache size (GB). Reserving a small amount of VRAM will modestly speed up the start of image generation.",
+                begin_entry_at=0,
+                editable=False,
+                color="CONTROL",
+                scroll_exit=True,
+            )
+            self.nextrely -= 1
+            self.vram = self.add_widget_intelligent(
+                npyscreen.Slider,
+                value=clip(old_opts.vram_cache_size, range=(0, MAX_VRAM), step=0.25),
+                out_of=round(MAX_VRAM * 2) / 2,
+                lowest=0.0,
+                relx=8,
+                step=0.25,
+                scroll_exit=True,
+            )
+        else:
+            self.vram = DummyWidgetValue.zero
         self.nextrely += 1
         self.outdir = self.add_widget_intelligent(
             FileBox,
@@ -401,7 +511,7 @@ Use cursor arrows to make a checkbox selection, and space to toggle.
         self.autoimport_dirs = {}
         self.autoimport_dirs["autoimport_dir"] = self.add_widget_intelligent(
             FileBox,
-            name=f"Folder to recursively scan for new checkpoints, ControlNets, LoRAs and TI models",
+            name="Folder to recursively scan for new checkpoints, ControlNets, LoRAs and TI models",
             value=str(config.root_path / config.autoimport_dir),
             select_dir=True,
             must_exist=False,
@@ -440,6 +550,11 @@ https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/LICENS
             when_pressed_function=self.on_ok,
         )
 
+    def show_hide_slice_sizes(self, value):
+        show = ATTENTION_CHOICES[value[0]] == "sliced"
+        self.attention_slice_label.hidden = not show
+        self.attention_slice_size.hidden = not show
+
     def on_ok(self):
         options = self.marshall_arguments()
         if self.validate_field_values(options):
@@ -473,13 +588,12 @@ https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/LICENS
         new_opts = Namespace()
 
         for attr in [
+            "ram",
+            "vram",
             "outdir",
-            "free_gpu_mem",
-            "max_cache_size",
-            "xformers_enabled",
-            "always_use_cpu",
         ]:
-            setattr(new_opts, attr, getattr(self, attr).value)
+            if hasattr(self, attr):
+                setattr(new_opts, attr, getattr(self, attr).value)
 
         for attr in self.autoimport_dirs:
             directory = Path(self.autoimport_dirs[attr].value)
@@ -490,6 +604,12 @@ https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/LICENS
         new_opts.hf_token = self.hf_token.value
         new_opts.license_acceptance = self.license_acceptance.value
         new_opts.precision = PRECISION_CHOICES[self.precision.value[0]]
+        new_opts.device = DEVICE_CHOICES[self.device.value[0]]
+        new_opts.attention_type = ATTENTION_CHOICES[self.attention_type.value[0]]
+        new_opts.attention_slice_size = ATTENTION_SLICE_CHOICES[self.attention_slice_size.value[0]]
+        generation_options = [GENERATION_OPT_CHOICES[x] for x in self.generation_options.value]
+        for v in GENERATION_OPT_CHOICES:
+            setattr(new_opts, v, v in generation_options)
 
         return new_opts
 
@@ -530,8 +650,19 @@ def edit_opts(program_opts: Namespace, invokeai_opts: Namespace) -> argparse.Nam
     return editApp.new_opts()
 
 
+def default_ramcache() -> float:
+    """Run a heuristic for the default RAM cache based on installed RAM."""
+
+    # Note that on my 64 GB machine, psutil.virtual_memory().total gives 62 GB,
+    # So we adjust everthing down a bit.
+    return (
+        15.0 if MAX_RAM >= 60 else 7.5 if MAX_RAM >= 30 else 4 if MAX_RAM >= 14 else 2.1
+    )  # 2.1 is just large enough for sd 1.5 ;-)
+
+
 def default_startup_options(init_file: Path) -> Namespace:
     opts = InvokeAIAppConfig.get_config()
+    opts.ram = opts.ram or default_ramcache()
     return opts
 
 
@@ -549,8 +680,18 @@ def default_user_selections(program_opts: Namespace) -> InstallSelections:
         if program_opts.default_only
         else [models[x].path or models[x].repo_id for x in installer.recommended_models()]
         if program_opts.yes_to_all
-        else list(),
+        else [],
     )
+
+
+# -------------------------------------
+def clip(value: float, range: tuple[float, float], step: float) -> float:
+    minimum, maximum = range
+    if value < minimum:
+        value = minimum
+    if value > maximum:
+        value = maximum
+    return round(value / step) * step
 
 
 # -------------------------------------
@@ -574,8 +715,6 @@ def initialize_rootdir(root: Path, yes_to_all: bool = False):
     path = dest / "core"
     path.mkdir(parents=True, exist_ok=True)
 
-    maybe_create_models_yaml(root)
-
 
 def maybe_create_models_yaml(root: Path):
     models_yaml = root / "configs" / "models.yaml"
@@ -592,13 +731,13 @@ def maybe_create_models_yaml(root: Path):
 
 # -------------------------------------
 def run_console_ui(program_opts: Namespace, initfile: Path = None) -> (Namespace, Namespace):
-    # parse_args() will read from init file if present
     invokeai_opts = default_startup_options(initfile)
     invokeai_opts.root = program_opts.root
 
-    # The third argument is needed in the Windows 11 environment to
-    # launch a console window running this program.
-    set_min_terminal_size(MIN_COLS, MIN_LINES)
+    if not set_min_terminal_size(MIN_COLS, MIN_LINES):
+        raise WindowTooSmallException(
+            "Could not increase terminal size. Try running again with a larger window or smaller font size."
+        )
 
     # the install-models application spawns a subprocess to install
     # models, and will crash unless this is set before running.
@@ -654,10 +793,17 @@ def migrate_init_file(legacy_format: Path):
     old = legacy_parser.parse_args([f"@{str(legacy_format)}"])
     new = InvokeAIAppConfig.get_config()
 
-    fields = list(get_type_hints(InvokeAIAppConfig).keys())
+    fields = [
+        x
+        for x, y in InvokeAIAppConfig.model_fields.items()
+        if (y.json_schema_extra.get("category", None) if y.json_schema_extra else None) != "DEPRECATED"
+    ]
     for attr in fields:
         if hasattr(old, attr):
-            setattr(new, attr, getattr(old, attr))
+            try:
+                setattr(new, attr, getattr(old, attr))
+            except ValidationError as e:
+                print(f"* Ignoring incompatible value for field {attr}:\n  {str(e)}")
 
     # a few places where the field names have changed and we have to
     # manually add in the new names/values
@@ -762,7 +908,7 @@ def main():
     if opt.full_precision:
         invoke_args.extend(["--precision", "float32"])
     config.parse_args(invoke_args)
-    logger = InvokeAILogger().getLogger(config=config)
+    logger = InvokeAILogger().get_logger(config=config)
 
     errors = set()
 
@@ -777,6 +923,7 @@ def main():
 
         models_to_download = default_user_selections(opt)
         new_init_file = config.root_path / "invokeai.yaml"
+
         if opt.yes_to_all:
             write_default_options(opt, new_init_file)
             init_options = Namespace(precision="float32" if opt.full_precision else "float16")
@@ -802,6 +949,8 @@ def main():
         postscript(errors=errors)
         if not opt.yes_to_all:
             input("Press any key to continue...")
+    except WindowTooSmallException as e:
+        logger.error(str(e))
     except KeyboardInterrupt:
         print("\nGoodbye! Come back soon.")
 

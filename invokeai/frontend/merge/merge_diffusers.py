@@ -9,24 +9,15 @@ import curses
 import sys
 from argparse import Namespace
 from pathlib import Path
-from typing import List, Union
+from typing import List
 
 import npyscreen
-from diffusers import DiffusionPipeline
-from diffusers import logging as dlogging
 from npyscreen import widget
-from omegaconf import OmegaConf
 
 import invokeai.backend.util.logging as logger
 from invokeai.app.services.config import InvokeAIAppConfig
-from invokeai.backend.model_management import (
-    ModelMerger,
-    MergeInterpolationMethod,
-    ModelManager,
-    ModelType,
-    BaseModelType,
-)
-from invokeai.frontend.install.widgets import FloatTitleSlider, TextBox, SingleSelectColumns
+from invokeai.backend.model_management import BaseModelType, ModelManager, ModelMerger, ModelType
+from invokeai.frontend.install.widgets import FloatTitleSlider, SingleSelectColumns, TextBox
 
 config = InvokeAIAppConfig.get_config()
 
@@ -140,6 +131,7 @@ class mergeModelsForm(npyscreen.FormMultiPageAction):
             values=[
                 "Models Built on SD-1.x",
                 "Models Built on SD-2.x",
+                "Models Built on SDXL",
             ],
             value=[self.current_base],
             columns=4,
@@ -282,14 +274,15 @@ class mergeModelsForm(npyscreen.FormMultiPageAction):
         else:
             interp = self.interpolations[self.merge_method.value[0]]
 
-        args = dict(
-            model_names=models,
-            base_model=tuple(BaseModelType)[self.base_select.value[0]],
-            alpha=self.alpha.value,
-            interp=interp,
-            force=self.force.value,
-            merged_model_name=self.merged_model_name.value,
-        )
+        bases = ["sd-1", "sd-2", "sdxl"]
+        args = {
+            "model_names": models,
+            "base_model": BaseModelType(bases[self.base_select.value[0]]),
+            "alpha": self.alpha.value,
+            "interp": interp,
+            "force": self.force.value,
+            "merged_model_name": self.merged_model_name.value,
+        }
         return args
 
     def check_for_overwrite(self) -> bool:
@@ -304,7 +297,7 @@ class mergeModelsForm(npyscreen.FormMultiPageAction):
     def validate_field_values(self) -> bool:
         bad_fields = []
         model_names = self.model_names
-        selected_models = set((model_names[self.model1.value[0]], model_names[self.model2.value[0]]))
+        selected_models = {model_names[self.model1.value[0]], model_names[self.model2.value[0]]}
         if self.model3.value[0] > 0:
             selected_models.add(model_names[self.model3.value[0] - 1])
         if len(selected_models) < 2:
@@ -318,7 +311,7 @@ class mergeModelsForm(npyscreen.FormMultiPageAction):
         else:
             return True
 
-    def get_model_names(self, base_model: BaseModelType = None) -> List[str]:
+    def get_model_names(self, base_model: BaseModelType = BaseModelType.StableDiffusion1) -> List[str]:
         model_names = [
             info["model_name"]
             for info in self.model_manager.list_models(model_type=ModelType.Main, base_model=base_model)
@@ -327,7 +320,8 @@ class mergeModelsForm(npyscreen.FormMultiPageAction):
         return sorted(model_names)
 
     def _populate_models(self, value=None):
-        base_model = tuple(BaseModelType)[value[0]]
+        bases = ["sd-1", "sd-2", "sdxl"]
+        base_model = BaseModelType(bases[value[0]])
         self.model_names = self.get_model_names(base_model)
 
         models_plus_none = self.model_names.copy()
@@ -382,7 +376,8 @@ def run_cli(args: Namespace):
 
 def main():
     args = _parse_args()
-    config.parse_args(["--root", str(args.root_dir)])
+    if args.root_dir:
+        config.parse_args(["--root", str(args.root_dir)])
 
     try:
         if args.front_end:

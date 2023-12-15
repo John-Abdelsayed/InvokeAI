@@ -1,30 +1,33 @@
 import {
-  AnyAction,
   ThunkDispatch,
+  UnknownAction,
   autoBatchEnhancer,
   combineReducers,
   configureStore,
 } from '@reduxjs/toolkit';
 import canvasReducer from 'features/canvas/store/canvasSlice';
-import controlNetReducer from 'features/controlNet/store/controlNetSlice';
+import changeBoardModalReducer from 'features/changeBoardModal/store/slice';
+import controlAdaptersReducer from 'features/controlAdapters/store/controlAdaptersSlice';
+import deleteImageModalReducer from 'features/deleteImageModal/store/slice';
 import dynamicPromptsReducer from 'features/dynamicPrompts/store/dynamicPromptsSlice';
 import galleryReducer from 'features/gallery/store/gallerySlice';
-import deleteImageModalReducer from 'features/deleteImageModal/store/slice';
-import changeBoardModalReducer from 'features/changeBoardModal/store/slice';
 import loraReducer from 'features/lora/store/loraSlice';
+import modelmanagerReducer from 'features/modelManager/store/modelManagerSlice';
 import nodesReducer from 'features/nodes/store/nodesSlice';
+import workflowReducer from 'features/nodes/store/workflowSlice';
 import generationReducer from 'features/parameters/store/generationSlice';
 import postprocessingReducer from 'features/parameters/store/postprocessingSlice';
+import queueReducer from 'features/queue/store/queueSlice';
 import sdxlReducer from 'features/sdxl/store/sdxlSlice';
 import configReducer from 'features/system/store/configSlice';
 import systemReducer from 'features/system/store/systemSlice';
-import modelmanagerReducer from 'features/ui/components/tabs/ModelManager/store/modelManagerSlice';
 import hotkeysReducer from 'features/ui/store/hotkeysSlice';
 import uiReducer from 'features/ui/store/uiSlice';
+import { createStore as createIDBKeyValStore, get, set } from 'idb-keyval';
 import dynamicMiddlewares from 'redux-dynamic-middlewares';
-import { rememberEnhancer, rememberReducer } from 'redux-remember';
+import { Driver, rememberEnhancer, rememberReducer } from 'redux-remember';
 import { api } from 'services/api';
-import { LOCALSTORAGE_PREFIX } from './constants';
+import { STORAGE_PREFIX } from './constants';
 import { serialize } from './enhancers/reduxRemember/serialize';
 import { unserialize } from './enhancers/reduxRemember/unserialize';
 import { actionSanitizer } from './middleware/devtools/actionSanitizer';
@@ -42,13 +45,15 @@ const allReducers = {
   config: configReducer,
   ui: uiReducer,
   hotkeys: hotkeysReducer,
-  controlNet: controlNetReducer,
+  controlAdapters: controlAdaptersReducer,
   dynamicPrompts: dynamicPromptsReducer,
   deleteImageModal: deleteImageModalReducer,
   changeBoardModal: changeBoardModalReducer,
   lora: loraReducer,
   modelmanager: modelmanagerReducer,
   sdxl: sdxlReducer,
+  queue: queueReducer,
+  workflow: workflowReducer,
   [api.reducerPath]: api.reducer,
 };
 
@@ -62,65 +67,82 @@ const rememberedKeys: (keyof typeof allReducers)[] = [
   'generation',
   'sdxl',
   'nodes',
+  'workflow',
   'postprocessing',
   'system',
   'ui',
-  'controlNet',
+  'controlAdapters',
   'dynamicPrompts',
   'lora',
   'modelmanager',
 ];
 
-export const store = configureStore({
-  reducer: rememberedRootReducer,
-  enhancers: (existingEnhancers) => {
-    return existingEnhancers
-      .concat(
-        rememberEnhancer(window.localStorage, rememberedKeys, {
-          persistDebounce: 300,
-          serialize,
-          unserialize,
-          prefix: LOCALSTORAGE_PREFIX,
-        })
-      )
-      .concat(autoBatchEnhancer());
-  },
-  middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware({
-      immutableCheck: false,
-      serializableCheck: false,
-    })
-      .concat(api.middleware)
-      .concat(dynamicMiddlewares)
-      .prepend(listenerMiddleware.middleware),
-  devTools: {
-    actionSanitizer,
-    stateSanitizer,
-    trace: true,
-    predicate: (state, action) => {
-      // TODO: hook up to the log level param in system slice
-      // manually type state, cannot type the arg
-      // const typedState = state as ReturnType<typeof rootReducer>;
+// Create a custom idb-keyval store (just needed to customize the name)
+export const idbKeyValStore = createIDBKeyValStore('invoke', 'invoke-store');
 
-      // TODO: doing this breaks the rtk query devtools, commenting out for now
-      // if (action.type.startsWith('api/')) {
-      //   // don't log api actions, with manual cache updates they are extremely noisy
-      //   return false;
-      // }
+// Create redux-remember driver, wrapping idb-keyval
+const idbKeyValDriver: Driver = {
+  getItem: (key) => get(key, idbKeyValStore),
+  setItem: (key, value) => set(key, value, idbKeyValStore),
+};
 
-      if (actionsDenylist.includes(action.type)) {
-        // don't log other noisy actions
-        return false;
+export const createStore = (uniqueStoreKey?: string, persist = true) =>
+  configureStore({
+    reducer: rememberedRootReducer,
+    middleware: (getDefaultMiddleware) =>
+      getDefaultMiddleware({
+        serializableCheck: false,
+        immutableCheck: false,
+      })
+        .concat(api.middleware)
+        .concat(dynamicMiddlewares)
+        .prepend(listenerMiddleware.middleware),
+    enhancers: (getDefaultEnhancers) => {
+      const _enhancers = getDefaultEnhancers().concat(autoBatchEnhancer());
+      if (persist) {
+        _enhancers.push(
+          rememberEnhancer(idbKeyValDriver, rememberedKeys, {
+            persistDebounce: 300,
+            serialize,
+            unserialize,
+            prefix: uniqueStoreKey
+              ? `${STORAGE_PREFIX}${uniqueStoreKey}-`
+              : STORAGE_PREFIX,
+          })
+        );
       }
-
-      return true;
+      return _enhancers;
     },
-  },
-});
+    devTools: {
+      actionSanitizer,
+      stateSanitizer,
+      trace: true,
+      predicate: (state, action) => {
+        // TODO: hook up to the log level param in system slice
+        // manually type state, cannot type the arg
+        // const typedState = state as ReturnType<typeof rootReducer>;
 
-export type AppGetState = typeof store.getState;
-export type RootState = ReturnType<typeof store.getState>;
+        // TODO: doing this breaks the rtk query devtools, commenting out for now
+        // if (action.type.startsWith('api/')) {
+        //   // don't log api actions, with manual cache updates they are extremely noisy
+        //   return false;
+        // }
+
+        if (actionsDenylist.includes(action.type)) {
+          // don't log other noisy actions
+          return false;
+        }
+
+        return true;
+      },
+    },
+  });
+
+export type AppGetState = ReturnType<
+  ReturnType<typeof createStore>['getState']
+>;
+export type RootState = ReturnType<ReturnType<typeof createStore>['getState']>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AppThunkDispatch = ThunkDispatch<RootState, any, AnyAction>;
-export type AppDispatch = typeof store.dispatch;
+export type AppThunkDispatch = ThunkDispatch<RootState, any, UnknownAction>;
+export type AppDispatch = ReturnType<typeof createStore>['dispatch'];
 export const stateSelector = (state: RootState) => state;

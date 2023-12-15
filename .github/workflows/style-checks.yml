@@ -1,6 +1,4 @@
 name: style checks
-# just formatting for now
-# TODO: add isort and flake8 later
 
 on:
   pull_request:
@@ -8,7 +6,7 @@ on:
     branches: main
 
 jobs:
-  black:
+  ruff:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -20,8 +18,7 @@ jobs:
 
       - name: Install dependencies with pip
         run: |
-          pip install black
+          pip install ruff
 
-      # - run: isort --check-only .
-      - run: black --check .
-      # - run: flake8
+      - run: ruff check --output-format=github .
+      - run: ruff format --check .

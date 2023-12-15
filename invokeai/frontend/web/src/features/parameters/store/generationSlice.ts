@@ -4,66 +4,80 @@ import { roundToMultiple } from 'common/util/roundDownToMultiple';
 import { configChanged } from 'features/system/store/configSlice';
 import { clamp } from 'lodash-es';
 import { ImageDTO } from 'services/api/types';
-import { clipSkipMap } from '../types/constants';
+import { isAnyControlAdapterAdded } from 'features/controlAdapters/store/controlAdaptersSlice';
+import { CLIP_SKIP_MAP } from 'features/parameters/types/constants';
 import {
-  CfgScaleParam,
-  HeightParam,
-  MainModelParam,
-  NegativePromptParam,
-  OnnxModelParam,
-  PositivePromptParam,
-  PrecisionParam,
-  SchedulerParam,
-  SeedParam,
-  StepsParam,
-  StrengthParam,
-  VaeModelParam,
-  WidthParam,
-  zMainModel,
-} from '../types/parameterSchemas';
+  ParameterCanvasCoherenceMode,
+  ParameterCFGScale,
+  ParameterHeight,
+  ParameterHRFMethod,
+  ParameterModel,
+  ParameterMaskBlurMethod,
+  ParameterNegativePrompt,
+  ParameterPositivePrompt,
+  ParameterPrecision,
+  ParameterScheduler,
+  ParameterSeed,
+  ParameterSteps,
+  ParameterStrength,
+  ParameterVAEModel,
+  ParameterWidth,
+  zParameterModel,
+  ParameterCFGRescaleMultiplier,
+} from 'features/parameters/types/parameterSchemas';
 
 export interface GenerationState {
-  cfgScale: CfgScaleParam;
-  height: HeightParam;
-  img2imgStrength: StrengthParam;
+  hrfEnabled: boolean;
+  hrfStrength: ParameterStrength;
+  hrfMethod: ParameterHRFMethod;
+  cfgScale: ParameterCFGScale;
+  cfgRescaleMultiplier: ParameterCFGRescaleMultiplier;
+  height: ParameterHeight;
+  img2imgStrength: ParameterStrength;
   infillMethod: string;
   initialImage?: { imageName: string; width: number; height: number };
   iterations: number;
   perlin: number;
-  positivePrompt: PositivePromptParam;
-  negativePrompt: NegativePromptParam;
-  scheduler: SchedulerParam;
-  seamBlur: number;
-  seamSize: number;
-  seamSteps: number;
-  seamStrength: number;
-  seed: SeedParam;
+  positivePrompt: ParameterPositivePrompt;
+  negativePrompt: ParameterNegativePrompt;
+  scheduler: ParameterScheduler;
+  maskBlur: number;
+  maskBlurMethod: ParameterMaskBlurMethod;
+  canvasCoherenceMode: ParameterCanvasCoherenceMode;
+  canvasCoherenceSteps: number;
+  canvasCoherenceStrength: ParameterStrength;
+  seed: ParameterSeed;
   seedWeights: string;
   shouldFitToWidthHeight: boolean;
   shouldGenerateVariations: boolean;
   shouldRandomizeSeed: boolean;
-  shouldUseNoiseSettings: boolean;
-  steps: StepsParam;
+  steps: ParameterSteps;
   threshold: number;
-  tileSize: number;
+  infillTileSize: number;
+  infillPatchmatchDownscaleSize: number;
   variationAmount: number;
-  width: WidthParam;
+  width: ParameterWidth;
   shouldUseSymmetry: boolean;
   horizontalSymmetrySteps: number;
   verticalSymmetrySteps: number;
-  model: MainModelParam | OnnxModelParam | null;
-  vae: VaeModelParam | null;
-  vaePrecision: PrecisionParam;
+  model: ParameterModel | null;
+  vae: ParameterVAEModel | null;
+  vaePrecision: ParameterPrecision;
   seamlessXAxis: boolean;
   seamlessYAxis: boolean;
   clipSkip: number;
   shouldUseCpuNoise: boolean;
   shouldShowAdvancedOptions: boolean;
   aspectRatio: number | null;
+  shouldLockAspectRatio: boolean;
 }
 
 export const initialGenerationState: GenerationState = {
+  hrfStrength: 0.45,
+  hrfEnabled: false,
+  hrfMethod: 'ESRGAN',
   cfgScale: 7.5,
+  cfgRescaleMultiplier: 0,
   height: 512,
   img2imgStrength: 0.75,
   infillMethod: 'patchmatch',
@@ -72,19 +86,20 @@ export const initialGenerationState: GenerationState = {
   positivePrompt: '',
   negativePrompt: '',
   scheduler: 'euler',
-  seamBlur: 16,
-  seamSize: 96,
-  seamSteps: 30,
-  seamStrength: 0.7,
+  maskBlur: 16,
+  maskBlurMethod: 'box',
+  canvasCoherenceMode: 'unmasked',
+  canvasCoherenceSteps: 20,
+  canvasCoherenceStrength: 0.3,
   seed: 0,
   seedWeights: '',
   shouldFitToWidthHeight: true,
   shouldGenerateVariations: false,
   shouldRandomizeSeed: true,
-  shouldUseNoiseSettings: false,
   steps: 50,
   threshold: 0,
-  tileSize: 32,
+  infillTileSize: 32,
+  infillPatchmatchDownscaleSize: 1,
   variationAmount: 0.1,
   width: 512,
   shouldUseSymmetry: false,
@@ -99,6 +114,7 @@ export const initialGenerationState: GenerationState = {
   shouldUseCpuNoise: true,
   shouldShowAdvancedOptions: false,
   aspectRatio: null,
+  shouldLockAspectRatio: false,
 };
 
 const initialState: GenerationState = initialGenerationState;
@@ -131,8 +147,14 @@ export const generationSlice = createSlice({
         state.steps
       );
     },
-    setCfgScale: (state, action: PayloadAction<number>) => {
+    setCfgScale: (state, action: PayloadAction<ParameterCFGScale>) => {
       state.cfgScale = action.payload;
+    },
+    setCfgRescaleMultiplier: (
+      state,
+      action: PayloadAction<ParameterCFGRescaleMultiplier>
+    ) => {
+      state.cfgRescaleMultiplier = action.payload;
     },
     setThreshold: (state, action: PayloadAction<number>) => {
       state.threshold = action.payload;
@@ -151,7 +173,7 @@ export const generationSlice = createSlice({
       state.width = height;
       state.height = width;
     },
-    setScheduler: (state, action: PayloadAction<SchedulerParam>) => {
+    setScheduler: (state, action: PayloadAction<ParameterScheduler>) => {
       state.scheduler = action.payload;
     },
     setSeed: (state, action: PayloadAction<number>) => {
@@ -196,23 +218,38 @@ export const generationSlice = createSlice({
     clearInitialImage: (state) => {
       state.initialImage = undefined;
     },
-    setSeamSize: (state, action: PayloadAction<number>) => {
-      state.seamSize = action.payload;
+    setMaskBlur: (state, action: PayloadAction<number>) => {
+      state.maskBlur = action.payload;
     },
-    setSeamBlur: (state, action: PayloadAction<number>) => {
-      state.seamBlur = action.payload;
+    setMaskBlurMethod: (
+      state,
+      action: PayloadAction<ParameterMaskBlurMethod>
+    ) => {
+      state.maskBlurMethod = action.payload;
     },
-    setSeamStrength: (state, action: PayloadAction<number>) => {
-      state.seamStrength = action.payload;
+    setCanvasCoherenceMode: (
+      state,
+      action: PayloadAction<ParameterCanvasCoherenceMode>
+    ) => {
+      state.canvasCoherenceMode = action.payload;
     },
-    setSeamSteps: (state, action: PayloadAction<number>) => {
-      state.seamSteps = action.payload;
+    setCanvasCoherenceSteps: (state, action: PayloadAction<number>) => {
+      state.canvasCoherenceSteps = action.payload;
     },
-    setTileSize: (state, action: PayloadAction<number>) => {
-      state.tileSize = action.payload;
+    setCanvasCoherenceStrength: (state, action: PayloadAction<number>) => {
+      state.canvasCoherenceStrength = action.payload;
     },
     setInfillMethod: (state, action: PayloadAction<string>) => {
       state.infillMethod = action.payload;
+    },
+    setInfillTileSize: (state, action: PayloadAction<number>) => {
+      state.infillTileSize = action.payload;
+    },
+    setInfillPatchmatchDownscaleSize: (
+      state,
+      action: PayloadAction<number>
+    ) => {
+      state.infillPatchmatchDownscaleSize = action.payload;
     },
     setShouldUseSymmetry: (state, action: PayloadAction<boolean>) => {
       state.shouldUseSymmetry = action.payload;
@@ -223,17 +260,11 @@ export const generationSlice = createSlice({
     setVerticalSymmetrySteps: (state, action: PayloadAction<number>) => {
       state.verticalSymmetrySteps = action.payload;
     },
-    setShouldUseNoiseSettings: (state, action: PayloadAction<boolean>) => {
-      state.shouldUseNoiseSettings = action.payload;
-    },
     initialImageChanged: (state, action: PayloadAction<ImageDTO>) => {
       const { image_name, width, height } = action.payload;
       state.initialImage = { imageName: image_name, width, height };
     },
-    modelChanged: (
-      state,
-      action: PayloadAction<MainModelParam | OnnxModelParam | null>
-    ) => {
+    modelChanged: (state, action: PayloadAction<ParameterModel | null>) => {
       state.model = action.payload;
 
       if (state.model === null) {
@@ -241,27 +272,30 @@ export const generationSlice = createSlice({
       }
 
       // Clamp ClipSkip Based On Selected Model
-      const { maxClip } = clipSkipMap[state.model.base_model];
+      const { maxClip } = CLIP_SKIP_MAP[state.model.base_model];
       state.clipSkip = clamp(state.clipSkip, 0, maxClip);
     },
-    vaeSelected: (state, action: PayloadAction<VaeModelParam | null>) => {
+    vaeSelected: (state, action: PayloadAction<ParameterVAEModel | null>) => {
       // null is a valid VAE!
       state.vae = action.payload;
     },
-    vaePrecisionChanged: (state, action: PayloadAction<PrecisionParam>) => {
+    vaePrecisionChanged: (state, action: PayloadAction<ParameterPrecision>) => {
       state.vaePrecision = action.payload;
     },
     setClipSkip: (state, action: PayloadAction<number>) => {
       state.clipSkip = action.payload;
     },
+    setHrfStrength: (state, action: PayloadAction<number>) => {
+      state.hrfStrength = action.payload;
+    },
+    setHrfEnabled: (state, action: PayloadAction<boolean>) => {
+      state.hrfEnabled = action.payload;
+    },
+    setHrfMethod: (state, action: PayloadAction<ParameterHRFMethod>) => {
+      state.hrfMethod = action.payload;
+    },
     shouldUseCpuNoiseChanged: (state, action: PayloadAction<boolean>) => {
       state.shouldUseCpuNoise = action.payload;
-    },
-    setShouldShowAdvancedOptions: (state, action: PayloadAction<boolean>) => {
-      state.shouldShowAdvancedOptions = action.payload;
-      if (!action.payload) {
-        state.clipSkip = 0;
-      }
     },
     setAspectRatio: (state, action: PayloadAction<number | null>) => {
       const newAspectRatio = action.payload;
@@ -269,6 +303,9 @@ export const generationSlice = createSlice({
       if (newAspectRatio) {
         state.height = roundToMultiple(state.width / newAspectRatio, 8);
       }
+    },
+    setShouldLockAspectRatio: (state, action: PayloadAction<boolean>) => {
+      state.shouldLockAspectRatio = action.payload;
     },
   },
   extraReducers: (builder) => {
@@ -278,7 +315,7 @@ export const generationSlice = createSlice({
       if (defaultModel && !state.model) {
         const [base_model, model_type, model_name] = defaultModel.split('/');
 
-        const result = zMainModel.safeParse({
+        const result = zParameterModel.safeParse({
           model_name,
           base_model,
           model_type,
@@ -289,9 +326,14 @@ export const generationSlice = createSlice({
         }
       }
     });
-    builder.addCase(setShouldShowAdvancedOptions, (state, action) => {
-      const advancedOptionsStatus = action.payload;
-      if (!advancedOptionsStatus) state.clipSkip = 0;
+
+    // TODO: This is a temp fix to reduce issues with T2I adapter having a different downscaling
+    // factor than the UNet. Hopefully we get an upstream fix in diffusers.
+    builder.addMatcher(isAnyControlAdapterAdded, (state, action) => {
+      if (action.payload.type === 't2i_adapter') {
+        state.width = roundToMultiple(state.width, 64);
+        state.height = roundToMultiple(state.height, 64);
+      }
     });
   },
 });
@@ -302,6 +344,7 @@ export const {
   resetParametersState,
   resetSeed,
   setCfgScale,
+  setCfgRescaleMultiplier,
   setWidth,
   setHeight,
   toggleSize,
@@ -312,10 +355,11 @@ export const {
   setPositivePrompt,
   setNegativePrompt,
   setScheduler,
-  setSeamBlur,
-  setSeamSize,
-  setSeamSteps,
-  setSeamStrength,
+  setMaskBlur,
+  setMaskBlurMethod,
+  setCanvasCoherenceMode,
+  setCanvasCoherenceSteps,
+  setCanvasCoherenceStrength,
   setSeed,
   setSeedWeights,
   setShouldFitToWidthHeight,
@@ -323,7 +367,8 @@ export const {
   setShouldRandomizeSeed,
   setSteps,
   setThreshold,
-  setTileSize,
+  setInfillTileSize,
+  setInfillPatchmatchDownscaleSize,
   setVariationAmount,
   setShouldUseSymmetry,
   setHorizontalSymmetrySteps,
@@ -331,13 +376,15 @@ export const {
   initialImageChanged,
   modelChanged,
   vaeSelected,
-  setShouldUseNoiseSettings,
   setSeamlessXAxis,
   setSeamlessYAxis,
   setClipSkip,
+  setHrfEnabled,
+  setHrfStrength,
+  setHrfMethod,
   shouldUseCpuNoiseChanged,
-  setShouldShowAdvancedOptions,
   setAspectRatio,
+  setShouldLockAspectRatio,
   vaePrecisionChanged,
 } = generationSlice.actions;
 

@@ -8,21 +8,24 @@ import {
   Flex,
   Text,
 } from '@chakra-ui/react';
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
 import IAIButton from 'common/components/IAIButton';
 import IAIMantineSearchableSelect from 'common/components/IAIMantineSearchableSelect';
+import {
+  changeBoardReset,
+  isModalOpenChanged,
+} from 'features/changeBoardModal/store/slice';
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useListAllBoardsQuery } from 'services/api/endpoints/boards';
 import {
   useAddImagesToBoardMutation,
   useRemoveImagesFromBoardMutation,
 } from 'services/api/endpoints/images';
-import { changeBoardReset, isModalOpenChanged } from '../store/slice';
 
-const selector = createSelector(
+const selector = createMemoizedSelector(
   [stateSelector],
   ({ changeBoardModal }) => {
     const { isModalOpen, imagesToChange } = changeBoardModal;
@@ -31,8 +34,7 @@ const selector = createSelector(
       isModalOpen,
       imagesToChange,
     };
-  },
-  defaultSelectorOptions
+  }
 );
 
 const ChangeBoardModal = () => {
@@ -42,10 +44,11 @@ const ChangeBoardModal = () => {
   const { imagesToChange, isModalOpen } = useAppSelector(selector);
   const [addImagesToBoard] = useAddImagesToBoardMutation();
   const [removeImagesFromBoard] = useRemoveImagesFromBoardMutation();
+  const { t } = useTranslation();
 
   const data = useMemo(() => {
     const data: { label: string; value: string }[] = [
-      { label: 'Uncategorized', value: 'none' },
+      { label: t('boards.uncategorized'), value: 'none' },
     ];
     (boards ?? []).forEach((board) =>
       data.push({
@@ -55,7 +58,7 @@ const ChangeBoardModal = () => {
     );
 
     return data;
-  }, [boards]);
+  }, [boards, t]);
 
   const handleClose = useCallback(() => {
     dispatch(changeBoardReset());
@@ -85,6 +88,11 @@ const ChangeBoardModal = () => {
     selectedBoard,
   ]);
 
+  const handleSetSelectedBoard = useCallback(
+    (v: string | null) => setSelectedBoard(v),
+    []
+  );
+
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   return (
@@ -97,19 +105,23 @@ const ChangeBoardModal = () => {
       <AlertDialogOverlay>
         <AlertDialogContent>
           <AlertDialogHeader fontSize="lg" fontWeight="bold">
-            Change Board
+            {t('boards.changeBoard')}
           </AlertDialogHeader>
 
           <AlertDialogBody>
             <Flex sx={{ flexDir: 'column', gap: 4 }}>
               <Text>
-                Moving {`${imagesToChange.length}`} image
-                {`${imagesToChange.length > 1 ? 's' : ''}`} to board:
+                {t('boards.movingImagesToBoard', {
+                  count: imagesToChange.length,
+                })}
+                :
               </Text>
               <IAIMantineSearchableSelect
-                placeholder={isFetching ? 'Loading...' : 'Select Board'}
+                placeholder={
+                  isFetching ? t('boards.loading') : t('boards.selectBoard')
+                }
                 disabled={isFetching}
-                onChange={(v) => setSelectedBoard(v)}
+                onChange={handleSetSelectedBoard}
                 value={selectedBoard}
                 data={data}
               />
@@ -117,10 +129,10 @@ const ChangeBoardModal = () => {
           </AlertDialogBody>
           <AlertDialogFooter>
             <IAIButton ref={cancelRef} onClick={handleClose}>
-              Cancel
+              {t('boards.cancel')}
             </IAIButton>
             <IAIButton colorScheme="accent" onClick={handleChangeBoard} ml={3}>
-              Move
+              {t('boards.move')}
             </IAIButton>
           </AlertDialogFooter>
         </AlertDialogContent>

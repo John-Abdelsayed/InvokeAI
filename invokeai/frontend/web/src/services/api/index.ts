@@ -1,14 +1,18 @@
-import { FullTagDescription } from '@reduxjs/toolkit/dist/query/endpointDefinitions';
 import {
   BaseQueryFn,
   FetchArgs,
   FetchBaseQueryError,
+  TagDescription,
   createApi,
   fetchBaseQuery,
 } from '@reduxjs/toolkit/query/react';
-import { $authToken, $baseUrl, $projectId } from 'services/api/client';
+import { $authToken } from 'app/store/nanostores/authToken';
+import { $baseUrl } from 'app/store/nanostores/baseUrl';
+import { $projectId } from 'app/store/nanostores/projectId';
 
 export const tagTypes = [
+  'AppVersion',
+  'AppConfig',
   'Board',
   'BoardImagesTotal',
   'BoardAssetsTotal',
@@ -16,11 +20,30 @@ export const tagTypes = [
   'ImageNameList',
   'ImageList',
   'ImageMetadata',
+  'ImageWorkflow',
+  'ImageMetadataFromFile',
+  'IntermediatesCount',
+  'SessionQueueItem',
+  'SessionQueueStatus',
+  'SessionProcessorStatus',
+  'CurrentSessionQueueItem',
+  'NextSessionQueueItem',
+  'BatchStatus',
+  'InvocationCacheStatus',
   'Model',
-];
-export type ApiFullTagDescription = FullTagDescription<
-  (typeof tagTypes)[number]
->;
+  'T2IAdapterModel',
+  'MainModel',
+  'OnnxModel',
+  'VaeModel',
+  'IPAdapterModel',
+  'TextualInversionModel',
+  'ControlNetModel',
+  'LoRAModel',
+  'SDXLRefinerModel',
+  'Workflow',
+  'WorkflowsRecent',
+] as const;
+export type ApiTagDescription = TagDescription<(typeof tagTypes)[number]>;
 export const LIST_TAG = 'LIST';
 
 const dynamicBaseQuery: BaseQueryFn<
@@ -39,7 +62,7 @@ const dynamicBaseQuery: BaseQueryFn<
         headers.set('Authorization', `Bearer ${authToken}`);
       }
       if (projectId) {
-        headers.set("project-id", projectId)
+        headers.set('project-id', projectId);
       }
 
       return headers;

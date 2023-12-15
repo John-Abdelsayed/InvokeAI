@@ -1,55 +1,79 @@
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
+import { stateSelector } from 'app/store/store';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
 import IAISlider from 'common/components/IAISlider';
-import { canvasSelector } from 'features/canvas/store/canvasSelectors';
+import { roundToMultiple } from 'common/util/roundDownToMultiple';
 import { setScaledBoundingBoxDimensions } from 'features/canvas/store/canvasSlice';
-import { memo } from 'react';
+import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
-const selector = createSelector(
-  [canvasSelector],
-  (canvas) => {
+const selector = createMemoizedSelector(
+  [stateSelector],
+  ({ canvas, generation }) => {
     const { boundingBoxScaleMethod, scaledBoundingBoxDimensions } = canvas;
+    const { model, aspectRatio } = generation;
 
     return {
+      model,
       scaledBoundingBoxDimensions,
+      aspectRatio,
       isManual: boundingBoxScaleMethod === 'manual',
     };
-  },
-  defaultSelectorOptions
+  }
 );
 
 const ParamScaledWidth = () => {
   const dispatch = useAppDispatch();
-  const { isManual, scaledBoundingBoxDimensions } = useAppSelector(selector);
+  const { model, isManual, scaledBoundingBoxDimensions, aspectRatio } =
+    useAppSelector(selector);
+
+  const initial = ['sdxl', 'sdxl-refiner'].includes(model?.base_model as string)
+    ? 1024
+    : 512;
 
   const { t } = useTranslation();
 
-  const handleChangeScaledWidth = (v: number) => {
-    dispatch(
-      setScaledBoundingBoxDimensions({
-        ...scaledBoundingBoxDimensions,
-        width: Math.floor(v),
-      })
-    );
-  };
+  const handleChangeScaledWidth = useCallback(
+    (v: number) => {
+      const newWidth = Math.floor(v);
+      let newHeight = scaledBoundingBoxDimensions.height;
 
-  const handleResetScaledWidth = () => {
+      if (aspectRatio) {
+        newHeight = roundToMultiple(newWidth / aspectRatio, 64);
+      }
+
+      dispatch(
+        setScaledBoundingBoxDimensions({
+          width: newWidth,
+          height: newHeight,
+        })
+      );
+    },
+    [aspectRatio, dispatch, scaledBoundingBoxDimensions.height]
+  );
+
+  const handleResetScaledWidth = useCallback(() => {
+    const resetWidth = Math.floor(initial);
+    let resetHeight = scaledBoundingBoxDimensions.height;
+
+    if (aspectRatio) {
+      resetHeight = roundToMultiple(resetWidth / aspectRatio, 64);
+    }
+
     dispatch(
       setScaledBoundingBoxDimensions({
-        ...scaledBoundingBoxDimensions,
-        width: Math.floor(512),
+        width: resetWidth,
+        height: resetHeight,
       })
     );
-  };
+  }, [aspectRatio, dispatch, initial, scaledBoundingBoxDimensions.height]);
 
   return (
     <IAISlider
       isDisabled={!isManual}
       label={t('parameters.scaledWidth')}
       min={64}
-      max={1024}
+      max={1536}
       step={64}
       value={scaledBoundingBoxDimensions.width}
       onChange={handleChangeScaledWidth}

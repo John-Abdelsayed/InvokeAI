@@ -1,26 +1,16 @@
 // Grid drawing adapted from https://longviewcoder.com/2021/12/08/konva-a-better-grid/
-
 import { useColorMode, useToken } from '@chakra-ui/react';
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
+import { stateSelector } from 'app/store/store';
 import { useAppSelector } from 'app/store/storeHooks';
-import { canvasSelector } from 'features/canvas/store/canvasSelectors';
-import { isEqual, range } from 'lodash-es';
-
-import { ReactNode, useCallback, useLayoutEffect, useState } from 'react';
+import { range } from 'lodash-es';
+import { ReactNode, memo, useCallback, useLayoutEffect, useState } from 'react';
 import { Group, Line as KonvaLine } from 'react-konva';
 
-const selector = createSelector(
-  [canvasSelector],
-  (canvas) => {
-    const { stageScale, stageCoordinates, stageDimensions } = canvas;
-    return { stageScale, stageCoordinates, stageDimensions };
-  },
-  {
-    memoizeOptions: {
-      resultEqualityCheck: isEqual,
-    },
-  }
-);
+const selector = createMemoizedSelector([stateSelector], ({ canvas }) => {
+  const { stageScale, stageCoordinates, stageDimensions } = canvas;
+  return { stageScale, stageCoordinates, stageDimensions };
+});
 
 const IAICanvasGrid = () => {
   const { stageScale, stageCoordinates, stageDimensions } =
@@ -117,4 +107,4 @@ const IAICanvasGrid = () => {
   return <Group>{gridLines}</Group>;
 };
 
-export default IAICanvasGrid;
+export default memo(IAICanvasGrid);

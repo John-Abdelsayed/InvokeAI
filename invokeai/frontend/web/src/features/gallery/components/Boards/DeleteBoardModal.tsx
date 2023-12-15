@@ -9,8 +9,8 @@ import {
   Skeleton,
   Text,
 } from '@chakra-ui/react';
-import { createSelector } from '@reduxjs/toolkit';
-import { skipToken } from '@reduxjs/toolkit/dist/query';
+import { skipToken } from '@reduxjs/toolkit/query';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
 import { useAppSelector } from 'app/store/storeHooks';
 import IAIButton from 'common/components/IAIButton';
@@ -43,7 +43,7 @@ const DeleteBoardModal = (props: Props) => {
 
   const selectImageUsageSummary = useMemo(
     () =>
-      createSelector([stateSelector], (state) => {
+      createMemoizedSelector([stateSelector], (state) => {
         const allImageUsage = (boardImageNames ?? []).map((imageName) =>
           getImageUsage(state, imageName)
         );
@@ -52,7 +52,7 @@ const DeleteBoardModal = (props: Props) => {
           isInitialImage: some(allImageUsage, (i) => i.isInitialImage),
           isCanvasImage: some(allImageUsage, (i) => i.isCanvasImage),
           isNodesImage: some(allImageUsage, (i) => i.isNodesImage),
-          isControlNetImage: some(allImageUsage, (i) => i.isControlNetImage),
+          isControlImage: some(allImageUsage, (i) => i.isControlImage),
         };
         return { imageUsageSummary };
       }),
@@ -115,7 +115,7 @@ const DeleteBoardModal = (props: Props) => {
       <AlertDialogOverlay>
         <AlertDialogContent>
           <AlertDialogHeader fontSize="lg" fontWeight="bold">
-            Delete {boardToDelete.board_name}
+            {t('controlnet.delete')} {boardToDelete.board_name}
           </AlertDialogHeader>
 
           <AlertDialogBody>
@@ -132,11 +132,11 @@ const DeleteBoardModal = (props: Props) => {
               ) : (
                 <ImageUsageMessage
                   imageUsage={imageUsageSummary}
-                  topMessage="This board contains images used in the following features:"
-                  bottomMessage="Deleting this board and its images will reset any features currently using them."
+                  topMessage={t('boards.topMessage')}
+                  bottomMessage={t('boards.bottomMessage')}
                 />
               )}
-              <Text>Deleted boards cannot be restored.</Text>
+              <Text>{t('boards.deletedBoardsCannotbeRestored')}</Text>
               <Text>
                 {canRestoreDeletedImagesFromBin
                   ? t('gallery.deleteImageBin')
@@ -149,21 +149,21 @@ const DeleteBoardModal = (props: Props) => {
               sx={{ justifyContent: 'space-between', width: 'full', gap: 2 }}
             >
               <IAIButton ref={cancelRef} onClick={handleClose}>
-                Cancel
+                {t('boards.cancel')}
               </IAIButton>
               <IAIButton
                 colorScheme="warning"
                 isLoading={isLoading}
                 onClick={handleDeleteBoardOnly}
               >
-                Delete Board Only
+                {t('boards.deleteBoardOnly')}
               </IAIButton>
               <IAIButton
                 colorScheme="error"
                 isLoading={isLoading}
                 onClick={handleDeleteBoardAndImages}
               >
-                Delete Board and Images
+                {t('boards.deleteBoardAndImages')}
               </IAIButton>
             </Flex>
           </AlertDialogFooter>

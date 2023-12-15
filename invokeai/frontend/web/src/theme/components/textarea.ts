@@ -1,5 +1,5 @@
 import { defineStyle, defineStyleConfig } from '@chakra-ui/react';
-import { getInputOutlineStyles } from '../util/getInputOutlineStyles';
+import { getInputOutlineStyles } from 'theme/util/getInputOutlineStyles';
 
 const invokeAI = defineStyle((props) => ({
   ...getInputOutlineStyles(props),
@@ -40,6 +40,7 @@ const invokeAI = defineStyle((props) => ({
       },
     },
   },
+  p: 2,
 }));
 
 export const textareaTheme = defineStyleConfig({

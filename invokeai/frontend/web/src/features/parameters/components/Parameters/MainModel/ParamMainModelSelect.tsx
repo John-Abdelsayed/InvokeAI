@@ -1,32 +1,28 @@
-import { memo, useCallback, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
-
-import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
-import IAIMantineSearchableSelect from 'common/components/IAIMantineSearchableSelect';
-
 import { Box, Flex } from '@chakra-ui/react';
 import { SelectItem } from '@mantine/core';
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { stateSelector } from 'app/store/store';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
+import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
+import IAIInformationalPopover from 'common/components/IAIInformationalPopover/IAIInformationalPopover';
+import IAIMantineSearchableSelect from 'common/components/IAIMantineSearchableSelect';
+import SyncModelsButton from 'features/modelManager/subpanels/ModelManagerSettingsPanel/SyncModelsButton';
 import { modelSelected } from 'features/parameters/store/actions';
 import { MODEL_TYPE_MAP } from 'features/parameters/types/constants';
 import { modelIdToMainModelParam } from 'features/parameters/util/modelIdToMainModelParam';
-import SyncModelsButton from 'features/ui/components/tabs/ModelManager/subpanels/ModelManagerSettingsPanel/SyncModelsButton';
+import { useFeatureStatus } from 'features/system/hooks/useFeatureStatus';
 import { activeTabNameSelector } from 'features/ui/store/uiSelectors';
 import { forEach } from 'lodash-es';
+import { memo, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { NON_REFINER_BASE_MODELS } from 'services/api/constants';
 import {
   useGetMainModelsQuery,
   useGetOnnxModelsQuery,
 } from 'services/api/endpoints/models';
-import { NON_REFINER_BASE_MODELS } from 'services/api/constants';
-import { useFeatureStatus } from '../../../../system/hooks/useFeatureStatus';
 
-const selector = createSelector(
-  stateSelector,
-  (state) => ({ model: state.generation.model }),
-  defaultSelectorOptions
-);
+const selector = createMemoizedSelector(stateSelector, (state) => ({
+  model: state.generation.model,
+}));
 
 const ParamMainModelSelect = () => {
   const dispatch = useAppDispatch();
@@ -52,10 +48,7 @@ const ParamMainModelSelect = () => {
     const data: SelectItem[] = [];
 
     forEach(mainModels.entities, (model, id) => {
-      if (
-        !model ||
-        (activeTabName === 'unifiedCanvas' && model.base_model === 'sdxl')
-      ) {
+      if (!model) {
         return;
       }
 
@@ -122,19 +115,23 @@ const ParamMainModelSelect = () => {
     />
   ) : (
     <Flex w="100%" alignItems="center" gap={3}>
-      <IAIMantineSearchableSelect
-        tooltip={selectedModel?.description}
-        label={t('modelManager.model')}
-        value={selectedModel?.id}
-        placeholder={data.length > 0 ? 'Select a model' : 'No models available'}
-        data={data}
-        error={data.length === 0}
-        disabled={data.length === 0}
-        onChange={handleChangeModel}
-        w="100%"
-      />
+      <IAIInformationalPopover feature="paramModel">
+        <IAIMantineSearchableSelect
+          tooltip={selectedModel?.description}
+          label={t('modelManager.model')}
+          value={selectedModel?.id}
+          placeholder={
+            data.length > 0 ? 'Select a model' : 'No models available'
+          }
+          data={data}
+          error={data.length === 0}
+          disabled={data.length === 0}
+          onChange={handleChangeModel}
+          w="100%"
+        />
+      </IAIInformationalPopover>
       {isSyncModelEnabled && (
-        <Box mt={7}>
+        <Box mt={6}>
           <SyncModelsButton iconMode />
         </Box>
       )}

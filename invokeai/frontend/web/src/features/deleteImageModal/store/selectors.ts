@@ -1,42 +1,46 @@
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
 import { RootState } from 'app/store/store';
-import { defaultSelectorOptions } from 'app/store/util/defaultMemoizeOptions';
+import { selectControlAdapterAll } from 'features/controlAdapters/store/controlAdaptersSlice';
+import { isControlNetOrT2IAdapter } from 'features/controlAdapters/store/types';
+import { isImageFieldInputInstance } from 'features/nodes/types/field';
+import { isInvocationNode } from 'features/nodes/types/invocation';
 import { some } from 'lodash-es';
 import { ImageUsage } from './types';
 
 export const getImageUsage = (state: RootState, image_name: string) => {
-  const { generation, canvas, nodes, controlNet } = state;
+  const { generation, canvas, nodes, controlAdapters } = state;
   const isInitialImage = generation.initialImage?.imageName === image_name;
 
   const isCanvasImage = canvas.layerState.objects.some(
     (obj) => obj.kind === 'image' && obj.imageName === image_name
   );
 
-  const isNodesImage = nodes.nodes.some((node) => {
+  const isNodesImage = nodes.nodes.filter(isInvocationNode).some((node) => {
     return some(
       node.data.inputs,
       (input) =>
-        input.type === 'image' && input.value?.image_name === image_name
+        isImageFieldInputInstance(input) &&
+        input.value?.image_name === image_name
     );
   });
 
-  const isControlNetImage = some(
-    controlNet.controlNets,
-    (c) =>
-      c.controlImage === image_name || c.processedControlImage === image_name
+  const isControlImage = selectControlAdapterAll(controlAdapters).some(
+    (ca) =>
+      ca.controlImage === image_name ||
+      (isControlNetOrT2IAdapter(ca) && ca.processedControlImage === image_name)
   );
 
   const imageUsage: ImageUsage = {
     isInitialImage,
     isCanvasImage,
     isNodesImage,
-    isControlNetImage,
+    isControlImage,
   };
 
   return imageUsage;
 };
 
-export const selectImageUsage = createSelector(
+export const selectImageUsage = createMemoizedSelector(
   [(state: RootState) => state],
   (state) => {
     const { imagesToDelete } = state.deleteImageModal;
@@ -50,6 +54,5 @@ export const selectImageUsage = createSelector(
     );
 
     return imagesUsage;
-  },
-  defaultSelectorOptions
+  }
 );

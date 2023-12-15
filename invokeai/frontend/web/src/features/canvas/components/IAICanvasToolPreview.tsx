@@ -1,19 +1,18 @@
-import { createSelector } from '@reduxjs/toolkit';
+import { createMemoizedSelector } from 'app/store/createMemoizedSelector';
+import { stateSelector } from 'app/store/store';
 import { useAppSelector } from 'app/store/storeHooks';
-import { canvasSelector } from 'features/canvas/store/canvasSelectors';
 import { rgbaColorToString } from 'features/canvas/util/colorToString';
-import { GroupConfig } from 'konva/lib/Group';
-import { isEqual } from 'lodash-es';
-
-import { Circle, Group } from 'react-konva';
 import {
   COLOR_PICKER_SIZE,
   COLOR_PICKER_STROKE_RADIUS,
-} from '../util/constants';
+} from 'features/canvas/util/constants';
+import { GroupConfig } from 'konva/lib/Group';
+import { memo } from 'react';
+import { Circle, Group } from 'react-konva';
 
-const canvasBrushPreviewSelector = createSelector(
-  canvasSelector,
-  (canvas) => {
+const canvasBrushPreviewSelector = createMemoizedSelector(
+  stateSelector,
+  ({ canvas }) => {
     const {
       cursorPosition,
       brushSize,
@@ -104,11 +103,6 @@ const canvasBrushPreviewSelector = createSelector(
       dotRadius: 1.5 / stageScale,
       clip,
     };
-  },
-  {
-    memoizeOptions: {
-      resultEqualityCheck: isEqual,
-    },
   }
 );
 
@@ -134,7 +128,9 @@ const IAICanvasToolPreview = (props: GroupConfig) => {
     clip,
   } = useAppSelector(canvasBrushPreviewSelector);
 
-  if (!shouldDrawBrushPreview) return null;
+  if (!shouldDrawBrushPreview) {
+    return null;
+  }
 
   return (
     <Group listening={false} {...clip} {...rest}>
@@ -206,4 +202,4 @@ const IAICanvasToolPreview = (props: GroupConfig) => {
   );
 };
 
-export default IAICanvasToolPreview;
+export default memo(IAICanvasToolPreview);
